@@ -26,6 +26,7 @@ og_links: dict[Link, int] = {}
 og_people: list[str] = []
 og_wants: dict[str, list[str]] = {}
 og_genders: dict[str, str] = {}
+og_people_by_least_wants: list[tuple[str, int]] = []
 with open(sys.argv[1], newline="") as f:
     reader = csv.reader(f)
     for i, line in enumerate(reader):
@@ -46,18 +47,30 @@ with open(sys.argv[1], newline="") as f:
             else:
                 og_links[link] = 1
 
+for p in og_people:
+    wants: int = 0
+    for other in og_people:
+        if p in og_wants[other]:
+            wants += 1
+    og_people_by_least_wants.append((p, wants))
+
+og_people_by_least_wants.sort(key=lambda x: x[1])
+
 # END FILE IMPORT
 
 # CULLING BAD LINKS
 
-bad_links = []
+bad_links: list[Link] = []
 for link in og_links:
     if link.p1 not in og_people or link.p2 not in og_people:
+        print(f"link with an invalid name: {link}, removing.")
+        bad_links.append(link)
+    elif og_genders[link.p1] != og_genders[link.p2]:
+        print(f"invalid gender link: {link}, removing.")
         bad_links.append(link)
 
 for link in bad_links:
     # FIXME: file src
-    print(f"bad link: {link}, removing.")
     og_links.pop(link)
 
 # END CULLING BAD LINKS
@@ -91,18 +104,18 @@ while len(og_links) > 0:
         links_in_room.append(best_link)
         people_in_room.add(best_link.p1)
         people_in_room.add(best_link.p2)
+    # end selecting links for the room
 
+    # remove any links containing ppl in this room before moving on
     bad_links = set()
     for person in people_in_room:
         for link in og_links:
             if link.p1 == person or link.p2 == person:
                 bad_links.add(link)
-
     for link in bad_links:
         og_links.pop(link)
 
     print(f"room: {people_in_room}")
-
     all_rooms.append(people_in_room)
 
 # END INITIAL BATCHING INTO ROOMS
