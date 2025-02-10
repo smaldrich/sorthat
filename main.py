@@ -1,122 +1,137 @@
 import csv
 import sys
 
+# FILE IMPORT
+
 assert len(sys.argv) == 2
 
-all_wants: dict[str, list[str]] = {}
-all_genders: dict[str, str] = {}
-all_people: list[str] = []
-all_rooms: list[list[str]] = []
 
+class Link:
+    def __init__(self, p1: str, p2: str):
+        self.p1 = p1
+        self.p2 = p2
+
+    def __eq__(self, value):
+        return self.p1 == value.p1 and self.p2 == value.p2
+
+    def __hash__(self):
+        return self.p1.__hash__() + self.p2.__hash__()
+
+    def __str__(self):
+        return f"{self.p1} <-> {self.p2}"
+        pass
+
+
+og_links: dict[Link, int] = {}
+og_people: list[str] = []
+og_wants: dict[str, list[str]] = {}
+og_genders: dict[str, str] = {}
 with open(sys.argv[1], newline="") as f:
     reader = csv.reader(f)
     for i, line in enumerate(reader):
         if i == 0:
-            continue
+            continue  # FIXME: should cope with reordering columns in the data
         name: str = line[0].lower().strip()
         gender: str = line[1].lower().strip()
-        roomies: list[str] = line[2].lower().split(", ")
-        roomies = [x.strip() for x in roomies]
+        wants: list[str] = line[2].lower().split(", ")
+        wants = [x.strip() for x in wants]
 
-        all_people.append(name)
-        all_genders[name] = gender
-        all_wants[name] = roomies
+        og_people.append(name)
+        og_genders[name] = gender
+        og_wants[name] = wants
+        for r in wants:
+            link = Link(name, r)
+            if link in og_links:
+                og_links[link] += 1
+            else:
+                og_links[link] = 1
 
-for name in all_people:
-    weird = []
-    for want in all_wants[name]:
-        if want not in all_people:
-            print(f"removing unknown want from {name}, '{want}'")
-            weird.append(want)
+# END FILE IMPORT
 
-    for w in weird:
-        all_wants[name].remove(w)
+# CULLING BAD LINKS
 
-    if weird.__len__() != 0:
-        print(f"fixed of {name}: {all_wants[name]}")
+bad_links = []
+for link in og_links:
+    if link.p1 not in og_people or link.p2 not in og_people:
+        bad_links.append(link)
 
+for link in bad_links:
+    # FIXME: file src
+    print(f"bad link: {link}, removing.")
+    og_links.pop(link)
 
-def max_room(rooms, person) -> tuple[list[str], int]:
-    maxRoom = None
-    maxRoomScore = -100000000
+# END CULLING BAD LINKS
+
+# INITIAL BATCHING INTO ROOMS
+
+all_rooms: list[list[str]] = []
+
+while len(og_links) > 0:
+    links_in_room = []
+    people_in_room = set()
+    while len(people_in_room) < 4 and len(og_links) > 0:
+        best_link = None
+        best_link_score = 0
+        for link, value in og_links.items():
+            score = 0
+            if link.p1 in people_in_room or link.p2 in people_in_room:
+                score += 1
+            if value == 2:
+                score += 10
+
+            if score > best_link_score:
+                best_link_score = score
+                best_link = link
+
+        if best_link is None:
+            best_link = og_links.popitem()[0]
+        else:
+            og_links.pop(best_link)
+
+        links_in_room.append(best_link)
+        people_in_room.add(best_link.p1)
+        people_in_room.add(best_link.p2)
+
+    bad_links = set()
+    for person in people_in_room:
+        for link in og_links:
+            if link.p1 == person or link.p2 == person:
+                bad_links.add(link)
+
+    for link in bad_links:
+        og_links.pop(link)
+
+    print(f"room: {people_in_room}")
+
+    all_rooms.append(people_in_room)
+
+# END INITIAL BATCHING INTO ROOMS
+
+# PRINTING ISSUES
+print("\nIssues:")
+
+for p in og_people:
+    person_room = None
     for room in all_rooms:
-        if len(room) == 4:
-            continue
-        elif len(room) > 0 and all_genders[person] != all_genders[room[0]]:
-            continue
-        score = -len(room) * 0.5
+        if p in room:
+            person_room = room
 
-        # outgoing links
-        wanted = all_wants[person]
-        for w in wanted:
-            if w in room:
-                score += 2
+    if person_room is None:
+        print(f"{p} didn't get a room!")
+        continue
 
-        # incoming links
-        for other in room:
-            otherWanted = all_wants[other]
-            if person in otherWanted:
-                score += 1
+    score: int = 0
+    for w in og_wants[p]:
+        if w in person_room:
+            score += 1
 
-        if score > maxRoomScore:
-            maxRoomScore = score
-            maxRoom = room
+    if score < 1:
+        print(f"{p} got {score} matches.")
 
-    return maxRoom, maxRoomScore
-
-
-people_backup = all_people.copy()
-while len(all_people) > 0:
-    person = all_people.pop()
-    room, score = max_room(all_rooms, person)
-
-    if room is None or score < 0:
-        all_rooms.append([person])
-    else:
-        room.append(person)
-all_people = people_backup
-
-
-def room_match_coutns():
-    print("DONEZO GARBANZO!!!!!\n")
-    for i, r in enumerate(all_rooms):
-        print(f"{i}\t{r}")
-        matchCount: int = 0
-        for person in r:
-            wanted = all_wants[person]
-            for w in wanted:
-                if w in r:
-                    matchCount += 1
-        print(f"\t{matchCount} matches.")
-
-
-def issues():
-    print("\nIssues:")
-
-    for p in all_people:
-        person_room = None
-        for room in all_rooms:
-            if p in room:
-                person_room = room
-
-        if person_room is None:
-            print(f"{p} didn't get a room!")
-            continue
-
-        score: int = 0
-        for w in all_wants[p]:
-            if w in person_room:
-                score += 1
-
-        if score < 1:
-            print(f"{p} got {score} matches.")
-
-    for i, r in enumerate(all_rooms):
-        if len(r) < 3:
-            print(f"room {i} only has {len(r)} people.")
-
-
-issues()
+for i, r in enumerate(all_rooms):
+    if len(r) < 3:
+        print(f"room {i} only has {len(r)} people.")
+# END PRINTING ISSUES
 
 f = open("rooms.csv", "w")
 for room in all_rooms:
