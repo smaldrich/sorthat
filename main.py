@@ -35,10 +35,8 @@ for name in all_people:
     if weird.__len__() != 0:
         print(f"fixed of {name}: {all_wants[name]}")
 
-people_backup = all_people.copy()
-while len(all_people) > 0:
-    person = all_people.pop()
 
+def max_room(rooms, person) -> tuple[list[str], int]:
     maxRoom = None
     maxRoomScore = -100000000
     for room in all_rooms:
@@ -64,47 +62,61 @@ while len(all_people) > 0:
             maxRoomScore = score
             maxRoom = room
 
-    if maxRoom is None or maxRoomScore < 0:
+    return maxRoom, maxRoomScore
+
+
+people_backup = all_people.copy()
+while len(all_people) > 0:
+    person = all_people.pop()
+    room, score = max_room(all_rooms, person)
+
+    if room is None or score < 0:
         all_rooms.append([person])
     else:
-        maxRoom.append(person)
+        room.append(person)
 all_people = people_backup
 
-print("DONEZO GARBANZO!!!!!\n")
-for i, r in enumerate(all_rooms):
-    print(f"{i}\t{r}")
-    matchCount: int = 0
-    for person in r:
-        wanted = all_wants[person]
-        for w in wanted:
-            if w in r:
-                matchCount += 1
-    print(f"\t{matchCount} matches.")
 
-print("\nIssues:")
+def room_match_coutns():
+    print("DONEZO GARBANZO!!!!!\n")
+    for i, r in enumerate(all_rooms):
+        print(f"{i}\t{r}")
+        matchCount: int = 0
+        for person in r:
+            wanted = all_wants[person]
+            for w in wanted:
+                if w in r:
+                    matchCount += 1
+        print(f"\t{matchCount} matches.")
 
-for p in all_people:
-    person_room = None
-    for room in all_rooms:
-        if p in room:
-            person_room = room
 
-    if person_room is None:
-        print(f"{p} didn't get a room!")
-        continue
+def issues():
+    print("\nIssues:")
 
-    score: int = 0
-    for w in all_wants[p]:
-        if w in person_room:
-            score += 1
+    for p in all_people:
+        person_room = None
+        for room in all_rooms:
+            if p in room:
+                person_room = room
 
-    if score < 1:
-        print(f"{p} got {score} matches.")
+        if person_room is None:
+            print(f"{p} didn't get a room!")
+            continue
 
-for i, r in enumerate(all_rooms):
-    if len(r) < 3:
-        print(f"room {i} only has {len(r)} people.")
+        score: int = 0
+        for w in all_wants[p]:
+            if w in person_room:
+                score += 1
 
+        if score < 1:
+            print(f"{p} got {score} matches.")
+
+    for i, r in enumerate(all_rooms):
+        if len(r) < 3:
+            print(f"room {i} only has {len(r)} people.")
+
+
+issues()
 
 f = open("rooms.csv", "w")
 for room in all_rooms:
