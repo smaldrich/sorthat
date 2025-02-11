@@ -8,8 +8,9 @@ assert len(sys.argv) == 2
 
 class Link:
     def __init__(self, p1: str, p2: str):
-        self.p1 = p1
-        self.p2 = p2
+        self.p1 = min(p1, p2)
+        self.p2 = max(p1, p2)
+        self.strength = 1
 
     def __eq__(self, value):
         return self.p1 == value.p1 and self.p2 == value.p2
@@ -46,6 +47,17 @@ with open(sys.argv[1], newline="") as f:
             else:
                 og_links[link] = 1
 
+want_counts: dict[str, int] = {}
+for person in og_people:
+    count: int = 0
+    for other in og_people:
+        if person in og_wants[other]:
+            count += 1
+    want_counts[person] = count
+
+sorted_people = og_people.copy()
+sorted_people.sort(key=lambda x: want_counts[x])
+
 # END FILE IMPORT
 
 # CULLING BAD LINKS
@@ -53,6 +65,8 @@ with open(sys.argv[1], newline="") as f:
 bad_links = []
 for link in og_links:
     if link.p1 not in og_people or link.p2 not in og_people:
+        bad_links.append(link)
+    elif og_genders[link.p1] != og_genders[link.p2]:
         bad_links.append(link)
 
 for link in bad_links:
@@ -62,50 +76,59 @@ for link in bad_links:
 
 # END CULLING BAD LINKS
 
-# INITIAL BATCHING INTO ROOMS
-
 all_rooms: list[list[str]] = []
-
 while len(og_links) > 0:
     links_in_room = []
     people_in_room = set()
-    while len(people_in_room) < 4 and len(og_links) > 0:
-        best_link = None
-        best_link_score = 0
-        for link, value in og_links.items():
-            score = 0
-            if link.p1 in people_in_room or link.p2 in people_in_room:
-                score += 1
-            if value == 2:
-                score += 10
+    for link, strength in og_links.items():
+        if strength == 2:
+            links_in_room.append(link)
+            people_in_room.add(link.p1)
+            people_in_room.add(link.p2)
+            break
 
-            if score > best_link_score:
-                best_link_score = score
-                best_link = link
+    if len(links_in_room) == 0:
+        links_in_room.append(og_links.popitem()[0])
+        people_in_room.add(link.p1)
+        people_in_room.add(link.p2)
 
-        if best_link is None:
-            best_link = og_links.popitem()[0]
-        else:
-            og_links.pop(best_link)
+    out_of_links = False
+    while len(people_in_room) < 4 and not out_of_links:
+        for floater in sorted_people:
+            if floater in people_in_room:
+                continue
 
-        links_in_room.append(best_link)
-        people_in_room.add(best_link.p1)
-        people_in_room.add(best_link.p2)
+            found = None
+            for link in og_links:
+                if link in links_in_room:
+                    continue
+                elif link.p1 == floater or link.p2 == floater:
+                    if link.p1 in people_in_room or link.p2 in people_in_room:
+                        found = link
+                        break
+            if found is None:
+                out_of_links = True
+                break
+
+            people_in_room.add(found.p1)
+            people_in_room.add(found.p2)
+            links_in_room.append(found)
+            break
 
     bad_links = set()
     for person in people_in_room:
+        sorted_people.remove(person)
         for link in og_links:
-            if link.p1 == person or link.p2 == person:
+            if person == link.p1 or person == link.p2:
                 bad_links.add(link)
 
     for link in bad_links:
         og_links.pop(link)
 
-    print(f"room: {people_in_room}")
-
     all_rooms.append(people_in_room)
 
-# END INITIAL BATCHING INTO ROOMS
+for room in all_rooms:
+    print(room)
 
 # PRINTING ISSUES
 print("\nIssues:")
