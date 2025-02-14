@@ -54,22 +54,24 @@ CharSliceSlice main_readCSVLine(FILE* f, snz_Arena* arena) {
     return SNZ_ARENA_ARR_END(arena, CharSlice);
 }
 
-typedef enum {
-    GENDER_M,
-    GENDER_F,
-} Gender;
-
 typedef struct Person Person;
 SNZ_SLICE_NAMED(Person*, PersonPtrSlice);
 
-typedef struct {
-    CharSlice name;
-    Gender gender;
-    PersonPtrSlice wants;
-} Person;
+struct Person {
+    CharSliceSlice fileLine;
 
-CharSliceSlice main_firstLine = { 0 };
-snz_Arena main_fileArena = { 0 };
+    CharSlice name;
+    HMM_Vec4 genderColor;
+    PersonPtrSlice wants;
+    PersonPtrSlice adjacents;
+    int wantsCount;
+};
+
+SNZ_SLICE(Person);
+
+PersonSlice people = { 0 };
+snz_Arena main_fileArenaA = { 0 };
+snz_Arena main_fileArenaB = { 0 };
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     assert(scratch || !scratch);
@@ -77,16 +79,43 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_inst = snzu_instanceInit();
     main_fontArena = snz_arenaInit(10000000, "main font arena");
-    main_font = snzr_fontInit(&main_fontArena, scratch, "res/OpenSans-Light.ttf", 32);
+    main_font = snzr_fontInit(&main_fontArena, scratch, "res/OpenSans-Light.ttf", 24);
 
-    main_fileArena = snz_arenaInit(10000000, "main file arena");
+    main_fileArenaA = snz_arenaInit(10000000, "main file arena A");
+    main_fileArenaB = snz_arenaInit(10000000, "main file arena B");
 
     FILE* f = fopen("hotel room sort data_v1.csv", "r");
     SNZ_ASSERT(f, "opening file failed.");
 
     main_readUntil(f, '\n', scratch); // skip first line bc there are garbage bits + it's not useful
-    main_firstLine = main_readCSVLine(f, &main_fileArena);
+
+    SNZ_ARENA_ARR_BEGIN(&main_fileArenaB, Person);
+    while (!feof(f)) {
+        Person* p = SNZ_ARENA_PUSH(&main_fileArenaB, Person);
+        p->fileLine = main_readCSVLine(f, &main_fileArenaA);
+        SNZ_ASSERTF(p->fileLine.count == 3, "Person file line had %d elts.", p->fileLine.count);
+        p->name = p->fileLine.elems[0];
+    }
+    people = SNZ_ARENA_ARR_END(&main_fileArenaB, Person);
+
     fclose(f);
+
+    const char* genderStrs[2] = { "Male", "Female" };
+    HMM_Vec4 genderColors[2] = {
+        HMM_V4(0.8, 0.9, 0.95, 1),
+        HMM_V4(0.95, 0.9, 0.8, 1),
+    };
+    for (int i = 0; i < people.count; i++) {
+        Person* p = &people.elems[i];
+        for (int i = 0; i < 2; i++) {
+            int minLen = SNZ_MIN(strlen(genderStrs[i]), (uint64_t)p->name.count);
+            if (strncmp(genderStrs[i], p->fileLine.elems[1].elems, minLen) == 0) {
+                p->genderColor = genderColors[i];
+                break;
+            }
+        }
+        SNZ_ASSERT(p->genderColor.A != 0, "person didn't find a gender color");
+    }
 }
 
 void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
@@ -108,18 +137,39 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
         snzu_boxScope() {
             snzu_boxNew("scroller");
             snzu_boxSetSizeMarginFromParent(10);
-            snzu_boxSetColor(HMM_V4(0.9, 0.9, 0.9, 1));
+            snzu_boxSetColor(HMM_V4(0.95, 0.95, 0.95, 1));
             snzu_boxScope() {
-                for (int i = 0; i < main_firstLine.count; i++) {
-                    snzu_boxNew(snz_arenaFormatStr(scratch, "%d", i));
-                    snzu_boxSetColor(HMM_V4(0.8, 0.8, 0.8, 1));
-                    snzu_boxSetCornerRadius(10);
-                    CharSlice elt = main_firstLine.elems[i];
-                    snzu_boxSetDisplayStrLen(&main_font, HMM_V4(0, 0, 0, 1), elt.elems, elt.count);
-                    snzu_boxSetSizeFitText(6);
+                float sizeOfPeopleCol = 0;
+                for (int i = 0; i < people.count; i++) {
+                    Person* p = &people.elems[i];
+                    HMM_Vec2 s = snzr_strSize(&main_font, p->name.elems, p->name.count, main_font.renderedSize);
+                    sizeOfPeopleCol = SNZ_MAX(s.X, sizeOfPeopleCol);
                 }
-            }
-            snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+                float textPadding = 5;
+                float boxHeight = main_font.renderedSize + 2 * textPadding;
+
+                snzu_boxNew("margin");
+                snzu_boxSetSizeMarginFromParent(5);
+                snzu_boxScope() {
+                    for (int i = 0; i < people.count; i++) {
+                        snzu_boxNew(snz_arenaFormatStr(scratch, "%d", i));
+                        Person* p = &people.elems[i];
+                        snzu_boxSetColor(p->genderColor);
+                        snzu_boxSetCornerRadius(10);
+                        snzu_boxFillParent();
+                        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, boxHeight);
+                        snzu_boxScope() {
+                            snzu_boxNew("name");
+                            snzu_boxSetDisplayStrLen(&main_font, HMM_V4(0, 0, 0, 1), p->name.elems, p->name.count);
+                            snzu_boxSetSizeFitText(textPadding);
+                            snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
+                            snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
+                        }
+                    }
+                } // end margin
+                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+                snzu_boxSetSizeFitChildren();
+            } // end scroller
             snzuc_scrollArea();
         } // end left side
     }
