@@ -6,4 +6,5 @@
         "type_traits": "c",
         "cstdlib": "c"
     }
+    "python.analysis.typeCheckingMode": "strict"
 }
