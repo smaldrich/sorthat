@@ -54,6 +54,25 @@ CharSliceSlice main_readCSVLine(FILE* f, snz_Arena* arena) {
     return SNZ_ARENA_ARR_END(arena, CharSlice);
 }
 
+CharSliceSlice main_strSplit(CharSlice chars, char splitter, snz_Arena* arena) {
+    SNZ_ARENA_ARR_BEGIN(arena, CharSlice);
+    int elemBegin = 0;
+    for (int i = 0; i < chars.count; i++) {
+        if (chars.elems[i] == splitter) {
+            *SNZ_ARENA_PUSH(arena, CharSlice) = (CharSlice){
+                .count = i - elemBegin,
+                .elems = &chars.elems[elemBegin],
+            };
+            elemBegin = i + 1;
+        }
+    }
+    *SNZ_ARENA_PUSH(arena, CharSlice) = (CharSlice){
+        .count = chars.count - elemBegin,
+        .elems = &chars.elems[elemBegin],
+    };
+    return SNZ_ARENA_ARR_END(arena, CharSlice);
+}
+
 typedef struct Person Person;
 SNZ_SLICE_NAMED(Person*, PersonPtrSlice);
 
@@ -115,6 +134,31 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
             }
         }
         SNZ_ASSERT(p->genderColor.A != 0, "person didn't find a gender color");
+    }
+
+    // make ptrs between ppl instead of dealing with names
+    for (int i = 0; i < people.count; i++) {
+        Person* p = &people.elems[i];
+        CharSlice names = p->fileLine.elems[2];
+        SNZ_ASSERT(names.count >= 2, "names cell w no quotes");
+        SNZ_ASSERT(names.elems[0] == '"', "names cell w no beginning quote");
+        SNZ_ASSERT(names.elems[names.count - 1] == '"', "names cell w no end quote");
+        names.count -= 2;
+        names.elems++;
+        CharSliceSlice wantedNames = main_strSplit(names, ',', scratch);
+
+        SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
+        for (int otherIdx = 0; otherIdx < people.count; otherIdx++) {
+            Person* other = &people.elems[otherIdx];
+            int minLen = SNZ_MIN(other->name.count, p->name.count);
+            for (int wantedIdx = 0; wantedIdx < wantedNames.count; wantedIdx++) {
+                if (strncmp(wantedNames.elems[wantedIdx].elems, other->name.elems, minLen) == 0) {
+                    *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = other;
+                    break;
+                }
+            }
+        }
+        p->wants = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
     }
 }
 
