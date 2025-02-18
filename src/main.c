@@ -73,6 +73,34 @@ CharSliceSlice main_strSplit(CharSlice chars, char splitter, snz_Arena* arena) {
     return SNZ_ARENA_ARR_END(arena, CharSlice);
 }
 
+bool main_charSliceEqual(CharSlice a, CharSlice b) {
+    if (a.count != b.count) {
+        return false;
+    }
+    return memcmp(a.elems, b.elems, a.count) == 0;
+}
+
+void main_charSliceTrim(CharSlice* s) {
+    CharSlice final = *s;
+    for (int i = 0; i < s->count; i++) {
+        if (s->elems[i] == ' ') {
+            final.count--;
+            final.elems++;
+        } else {
+            break;
+        }
+    }
+
+    for (int i = s->count; final.count > 0; i--) {
+        if (s->elems[i] == ' ') {
+            final.count--;
+        } else {
+            break;
+        }
+    }
+    *s = final;
+}
+
 typedef struct Person Person;
 SNZ_SLICE_NAMED(Person*, PersonPtrSlice);
 
@@ -98,7 +126,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_inst = snzu_instanceInit();
     main_fontArena = snz_arenaInit(10000000, "main font arena");
-    main_font = snzr_fontInit(&main_fontArena, scratch, "res/OpenSans-Light.ttf", 24);
+    main_font = snzr_fontInit(&main_fontArena, scratch, "res/OpenSans-Light.ttf", 20);
 
     main_fileArenaA = snz_arenaInit(10000000, "main file arena A");
     main_fileArenaB = snz_arenaInit(10000000, "main file arena B");
@@ -114,6 +142,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         p->fileLine = main_readCSVLine(f, &main_fileArenaA);
         SNZ_ASSERTF(p->fileLine.count == 3, "Person file line had %d elts.", p->fileLine.count);
         p->name = p->fileLine.elems[0];
+        main_charSliceTrim(&p->name);
     }
     people = SNZ_ARENA_ARR_END(&main_fileArenaB, Person);
 
@@ -140,21 +169,24 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     for (int i = 0; i < people.count; i++) {
         Person* p = &people.elems[i];
         CharSlice names = p->fileLine.elems[2];
-        SNZ_ASSERT(names.count >= 2, "names cell w no quotes");
-        SNZ_ASSERT(names.elems[0] == '"', "names cell w no beginning quote");
-        SNZ_ASSERT(names.elems[names.count - 1] == '"', "names cell w no end quote");
-        names.count -= 2;
-        names.elems++;
+        if (names.elems[0] == '"') {
+            SNZ_ASSERT(names.count >= 2, "empty names cell");
+            SNZ_ASSERT(names.elems[names.count - 1] == '"', "names cell w no end quote");
+            names.count -= 2;
+            names.elems++;
+        }
         CharSliceSlice wantedNames = main_strSplit(names, ',', scratch);
+        for (int i = 0; i < wantedNames.count; i++) {
+            main_charSliceTrim(&wantedNames.elems[i]);
+        }
 
         SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
         for (int otherIdx = 0; otherIdx < people.count; otherIdx++) {
             Person* other = &people.elems[otherIdx];
-            int minLen = SNZ_MIN(other->name.count, p->name.count);
             for (int wantedIdx = 0; wantedIdx < wantedNames.count; wantedIdx++) {
-                if (strncmp(wantedNames.elems[wantedIdx].elems, other->name.elems, minLen) == 0) {
+                CharSlice wanted = wantedNames.elems[wantedIdx];
+                if (main_charSliceEqual(wanted, other->name)) {
                     *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = other;
-                    break;
                 }
             }
         }
@@ -189,7 +221,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     HMM_Vec2 s = snzr_strSize(&main_font, p->name.elems, p->name.count, main_font.renderedSize);
                     sizeOfPeopleCol = SNZ_MAX(s.X, sizeOfPeopleCol);
                 }
-                float textPadding = 5;
+                float textPadding = 4;
                 float boxHeight = main_font.renderedSize + 2 * textPadding;
 
                 snzu_boxNew("margin");
@@ -202,12 +234,26 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                         snzu_boxSetCornerRadius(10);
                         snzu_boxFillParent();
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, boxHeight);
+                        snzu_boxSetEndFromParentEndAx(-20, SNZU_AX_X); // FIXME: build this in as a setting
                         snzu_boxScope() {
                             snzu_boxNew("name");
                             snzu_boxSetDisplayStrLen(&main_font, HMM_V4(0, 0, 0, 1), p->name.elems, p->name.count);
                             snzu_boxSetSizeFitText(textPadding);
                             snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
                             snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
+
+                            snzu_boxNew("others");
+                            snzu_boxFillParent();
+                            snzu_boxSetStartFromParentAx(sizeOfPeopleCol, SNZU_AX_X);
+                            snzu_boxScope() {
+                                for (int i = 0; i < p->wants.count; i++) {
+                                    snzu_boxNew(snz_arenaFormatStr(scratch, "%d", i));
+                                    Person* other = p->wants.elems[i];
+                                    snzu_boxSetDisplayStrLen(&main_font, HMM_V4(0, 0, 0, 1), other->name.elems, other->name.count);
+                                    snzu_boxSetSizeFitText(textPadding);
+                                }
+                            }
+                            snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_X);
                         }
                     }
                 } // end margin

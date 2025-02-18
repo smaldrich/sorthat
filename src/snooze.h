@@ -1503,6 +1503,11 @@ void snzu_boxSetEndFromParentEnd(HMM_Vec2 offset) {
     _snzu_instance->selectedBox->end = finalPos;
 }
 
+void snzu_boxSetEndFromParentEndAx(float offset, snzu_Axis ax) {
+    float finalPos = _snzu_instance->selectedBox->parent->end.Elements[ax] + offset;
+    _snzu_instance->selectedBox->end.Elements[ax] = finalPos;
+}
+
 void snzu_boxSetEndAx(float newEnd, snzu_Axis ax) {
     _snzu_instance->selectedBox->end.Elements[ax] = newEnd;
 }
