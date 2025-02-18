@@ -112,6 +112,9 @@ struct Person {
     PersonPtrSlice wants;
     PersonPtrSlice adjacents;
     int wantsCount;
+
+    bool hovered;
+    float hoverAnim;
 };
 
 SNZ_SLICE(Person);
@@ -136,7 +139,7 @@ snz_Arena main_fileArenaB = { 0 };
 
 #define COL_BACKGROUND HMM_V4(32.0/255, 27.0/255, 27.0/255, 1.0)
 #define COL_TEXT HMM_V4(1, 1, 1, 1)
-#define COL_PANEL HMM_V4(0, 0, 0, 0)
+#define COL_HOVERED HMM_V4(1, 1, 1, 0.2)
 #define COL_PANEL_A HMM_V4(33.0/255, 38.0/255, 40.0/255, 1.0)
 #define COL_PANEL_B HMM_V4(40.0/255, 37.0/255, 33.0/255, 1.0)
 #define COL_PANEL_ERROR HMM_V4(99.0/255, 48.0/255, 46.0/255, 1.0)
@@ -160,6 +163,18 @@ bool main_personInPersonSlice(Person* p, PersonPtrSlice slice) {
         }
     }
     return false;
+}
+
+void main_buildPerson(Person* p, HMM_Vec4 textColor, snz_Arena* scratch) {
+    snzu_boxNew(snz_arenaFormatStr(scratch, "%p WOWZER", p));
+    snzu_boxSetDisplayStrLen(&main_font, textColor, p->name.elems, p->name.count);
+    snzu_boxSetSizeFitText(TEXT_PADDING);
+
+    snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+    p->hovered |= inter->hovered;
+    snzu_boxSetColor(HMM_LerpV4(HMM_V4(0, 0, 0, 0), p->hoverAnim, COL_HOVERED));
+    snzu_boxSetCornerRadius(10);
 }
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
@@ -440,7 +455,6 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
         snzu_boxScope() {
             snzu_boxNew("scroller");
             snzu_boxSetSizeMarginFromParent(10);
-            snzu_boxSetColor(COL_PANEL);
             snzu_boxScope() {
                 float sizeOfPeopleCol = 0;
                 for (int i = 0; i < people.count; i++) {
@@ -461,9 +475,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                         snzu_boxFillParent();
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, boxHeight);
                         snzu_boxScope() {
-                            snzu_boxNew("name");
-                            snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, p->name.elems, p->name.count);
-                            snzu_boxSetSizeFitText(TEXT_PADDING);
+                            main_buildPerson(p, COL_TEXT, scratch);
                             snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
                             snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
 
@@ -472,10 +484,8 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                             snzu_boxSetStartFromParentAx(sizeOfPeopleCol, SNZU_AX_X);
                             snzu_boxScope() {
                                 for (int i = 0; i < p->wants.count; i++) {
-                                    snzu_boxNew(snz_arenaFormatStr(scratch, "%d", i));
                                     Person* other = p->wants.elems[i];
-                                    snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, other->name.elems, other->name.count);
-                                    snzu_boxSetSizeFitText(TEXT_PADDING);
+                                    main_buildPerson(other, COL_TEXT, scratch);
                                 }
                             }
                             snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_X);
@@ -494,7 +504,6 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
         snzu_boxScope() {
             snzu_boxNew("scroller");
             snzu_boxSetSizeMarginFromParent(10);
-            snzu_boxSetColor(COL_PANEL);
             snzu_boxScope() {
                 float boxHeight = main_font.renderedSize + 2 * TEXT_PADDING;
                 snzu_boxNew("margin");
@@ -526,7 +535,6 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
 
                             for (int i = 0; i < room->people.count; i++) {
                                 Person* p = room->people.elems[i];
-                                snzu_boxNew(snz_arenaFormatStr(scratch, "%p", p));
                                 bool anyMatches = false;
                                 for (int j = 0; j < p->wants.count; j++) {
                                     Person* wanted = p->wants.elems[j];
@@ -535,9 +543,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                         break;
                                     }
                                 }
-
-                                snzu_boxSetDisplayStrLen(&main_font, anyMatches ? COL_TEXT : COL_ERROR_TEXT, p->name.elems, p->name.count);
-                                snzu_boxSetSizeFitText(TEXT_PADDING);
+                                main_buildPerson(p, anyMatches ? COL_TEXT : COL_ERROR_TEXT, scratch);
                             }
                         }
                         snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_X);
@@ -547,8 +553,14 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                 snzu_boxSetSizeFitChildren();
             } // end scroller
             snzuc_scrollArea();
+        } // end right side
+
+        for (int i = 0; i < people.count; i++) {
+            Person* p = &people.elems[i];
+            snzu_easeExp(&p->hoverAnim, p->hovered, 18);
+            p->hovered = false;
         }
-    }
+    } // end main parent
 
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 10000);
     snzu_frameDrawAndGenInteractions(inputs, vp);
