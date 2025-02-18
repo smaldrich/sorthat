@@ -89,11 +89,11 @@ def gen_rooms(
             if pair[0] in people_remaining and pair[1] in people_remaining:
                 people_in_room.append(pair[0])
                 people_in_room.append(pair[1])
-                # print(f"selecting base pair {pair[0]} <-> {pair[1]}")
+                print(f"selecting base pair {pair[0]} <-> {pair[1]}")
                 break
 
         if len(people_in_room) == 0:
-            # print(f"base pair failed. selecting {people_remaining[0]}")
+            print(f"base pair failed. selecting {people_remaining[0]}")
             people_in_room = [people_remaining[0]]
 
         while len(people_in_room) < 4:
@@ -123,7 +123,7 @@ def gen_rooms(
                     min_want_count = count
 
             assert min_adjacent is not None
-            # print(f"adding {min_adjacent} with outer count {min_want_count}.")
+            print(f"adding {min_adjacent} with outer count {min_want_count}.")
             # print(f"from pool: {adjacents}")
             people_in_room.append(min_adjacent)
         # end searching for the room
@@ -132,7 +132,7 @@ def gen_rooms(
         for person in people_in_room:
             people_remaining.remove(person)
 
-        # print(f"Adding room: {people_in_room}\n")
+        print(f"Adding room: {people_in_room}\n")
 
     return all_rooms
 

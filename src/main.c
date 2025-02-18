@@ -174,7 +174,6 @@ void main_buildPerson(Person* p, HMM_Vec4 textColor, snz_Arena* scratch) {
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
     p->hovered |= inter->hovered;
     snzu_boxSetColor(HMM_LerpV4(HMM_V4(0, 0, 0, 0), p->hoverAnim, COL_HOVERED));
-    snzu_boxSetCornerRadius(10);
 }
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
@@ -474,6 +473,8 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                         snzu_boxSetCornerRadius(10);
                         snzu_boxFillParent();
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, boxHeight);
+                        snzu_boxSetBorder(2, HMM_LerpV4(p->genderColor, p->hoverAnim, COL_TEXT));
+                        snzu_boxClipChildren(true);
                         snzu_boxScope() {
                             main_buildPerson(p, COL_TEXT, scratch);
                             snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
@@ -501,6 +502,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
         snzu_boxNew("right side");
         snzu_boxFillParent();
         snzu_boxSizeFromEndPctParent(0.5, SNZU_AX_X);
+        snzu_boxSetEndFromParentEndAx(-100, SNZU_AX_Y);
         snzu_boxScope() {
             snzu_boxNew("scroller");
             snzu_boxSetSizeMarginFromParent(10);
@@ -553,13 +555,25 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                 snzu_boxSetSizeFitChildren();
             } // end scroller
             snzuc_scrollArea();
+
+            snzu_boxNew("right bar");
+            snzu_boxSetColor(COL_TEXT);
+            snzu_boxFillParent();
+            snzu_boxSetSizeFromEndAx(SNZU_AX_Y, 2);
         } // end right side
+
+        snzu_boxNew("center bar");
+        snzu_boxSetColor(COL_TEXT);
+        snzu_boxFillParent();
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, 2);
+        snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
 
         for (int i = 0; i < people.count; i++) {
             Person* p = &people.elems[i];
             snzu_easeExp(&p->hoverAnim, p->hovered, 18);
             p->hovered = false;
         }
+
     } // end main parent
 
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 10000);

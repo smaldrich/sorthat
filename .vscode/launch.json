@@ -8,7 +8,7 @@
         //     "name": "Python Debugger: Python File",
         //     "type": "debugpy",
         //     "request": "launch",
-        //     "program": "main.py",
+        //     "program": "src/main.py",
         //     "args": [
         //         "hotel room sort data_v1.csv"
         //     ]
