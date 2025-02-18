@@ -518,11 +518,17 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     float roomNumberColWidth = snzr_strSize(&main_font, "200", 2, main_font.renderedSize).X;
 
                     for (Room* room = main_firstRoom; room; (room = room->next, roomNumber++)) {
+                        const char* errString = NULL;
                         snzu_boxNew(snz_arenaFormatStr(scratch, "%p", room));
                         SNZ_ASSERT(room->people.count > 0, "empty room??");
                         HMM_Vec4 color = room->people.elems[0]->genderColor;
                         if (room->people.count <= 2) {
                             color = COL_PANEL_ERROR;
+                            if (room->people.count == 1) {
+                                errString = "only 1 person.";
+                            } else {
+                                errString = snz_arenaFormatStr(scratch, "only %lld people.", room->people.count);
+                            }
                         }
                         snzu_boxSetColor(color);
                         snzu_boxSetCornerRadius(10);
@@ -545,10 +551,23 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                         break;
                                     }
                                 }
+                                if (!anyMatches && !errString) {
+                                    errString = snz_arenaFormatStr(scratch, "%.*s doesn't like anyone here.", (int)p->name.count, p->name.elems);
+                                }
                                 main_buildPerson(p, anyMatches ? COL_TEXT : COL_ERROR_TEXT, scratch);
                             }
                         }
                         snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_X);
+
+                        snzu_boxScope() {
+                            if (errString) {
+                                snzu_boxNew("err");
+                                snzu_boxSetDisplayStr(&main_font, COL_ERROR_TEXT, errString);
+                                snzu_boxSetSizeFitText(TEXT_PADDING);
+                                snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
+                                snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
+                            }
+                        }
                     }
                 } // end margin
                 snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
