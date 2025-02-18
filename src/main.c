@@ -123,7 +123,14 @@ typedef struct {
 
 SNZ_SLICE(PersonPair);
 
+typedef struct Room Room;
+struct Room {
+    PersonPtrSlice people;
+    Room* next;
+};
+
 PersonSlice people = { 0 };
+Room* main_firstRoom = NULL;
 snz_Arena main_fileArenaA = { 0 };
 snz_Arena main_fileArenaB = { 0 };
 
@@ -132,6 +139,7 @@ snz_Arena main_fileArenaB = { 0 };
 #define COL_PANEL HMM_V4(0, 0, 0, 0)
 #define COL_PANEL_A HMM_V4(33.0/255, 38.0/255, 40.0/255, 1.0)
 #define COL_PANEL_B HMM_V4(40.0/255, 37.0/255, 33.0/255, 1.0)
+#define TEXT_PADDING 7
 
 void main_pushToArenaIfNotInCollection(void** collection, int64_t collectionCount, void* new, snz_Arena* arena) {
     for (int64_t i = 0; i < collectionCount; i++) {
@@ -265,7 +273,6 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         }
     }
     PersonPairSlice strongPairs = SNZ_ARENA_ARR_END(&main_fileArenaB, PersonPair);
-    SNZ_ASSERT(strongPairs.elems || !strongPairs.elems, "AAHH");
 
     // adjacents
     for (int i = 0; i < people.count; i++) {
@@ -299,6 +306,22 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         //     printf("%.*s, ", (int)adj->name.count, adj->name.elems);
         // }
     }
+
+    { // room gen!!!
+        main_firstRoom = NULL;
+        for (int i = 0; i < 10; i++) {
+            Room* room = SNZ_ARENA_PUSH(&main_fileArenaA, Room);
+            room->next = main_firstRoom;
+            main_firstRoom = room;
+            SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
+
+            PersonPair* p = &strongPairs.elems[i];
+            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = p->a;
+            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = p->b;
+
+            room->people = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
+        }
+    } // end room gen
 }
 
 void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
@@ -323,8 +346,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     HMM_Vec2 s = snzr_strSize(&main_font, p->name.elems, p->name.count, main_font.renderedSize);
                     sizeOfPeopleCol = SNZ_MAX(s.X, sizeOfPeopleCol);
                 }
-                float textPadding = 7;
-                float boxHeight = main_font.renderedSize + 2 * textPadding;
+                float boxHeight = main_font.renderedSize + 2 * TEXT_PADDING;
 
                 snzu_boxNew("margin");
                 snzu_boxSetSizeMarginFromParent(5);
@@ -339,7 +361,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                         snzu_boxScope() {
                             snzu_boxNew("name");
                             snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, p->name.elems, p->name.count);
-                            snzu_boxSetSizeFitText(textPadding);
+                            snzu_boxSetSizeFitText(TEXT_PADDING);
                             snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
                             snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
 
@@ -351,7 +373,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                     snzu_boxNew(snz_arenaFormatStr(scratch, "%d", i));
                                     Person* other = p->wants.elems[i];
                                     snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, other->name.elems, other->name.count);
-                                    snzu_boxSetSizeFitText(textPadding);
+                                    snzu_boxSetSizeFitText(TEXT_PADDING);
                                 }
                             }
                             snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_X);
@@ -372,11 +394,42 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
             snzu_boxSetSizeMarginFromParent(10);
             snzu_boxSetColor(COL_PANEL);
             snzu_boxScope() {
-                snzu_boxNew("ahh");
-                snzu_boxSetDisplayStr(&main_font, COL_TEXT, "Hello world!");
-                snzu_boxSetSizeFitText(5);
-            }
-            snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+                float boxHeight = main_font.renderedSize + 2 * TEXT_PADDING;
+                snzu_boxNew("margin");
+                snzu_boxSetSizeMarginFromParent(5);
+                snzu_boxScope() {
+                    HMM_Vec4 numberColor = COL_TEXT;
+                    numberColor.A = 0.5;
+
+                    int roomNumber = 1;
+                    float roomNumberColWidth = snzr_strSize(&main_font, "200", 2, main_font.renderedSize).X;
+
+                    for (Room* room = main_firstRoom; room; (room = room->next, roomNumber++)) {
+                        snzu_boxNew(snz_arenaFormatStr(scratch, "%p", room));
+                        SNZ_ASSERT(room->people.count > 0, "empty room??");
+                        snzu_boxSetColor(room->people.elems[0]->genderColor);
+                        snzu_boxSetCornerRadius(10);
+                        snzu_boxFillParent();
+                        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, boxHeight);
+                        snzu_boxScope() {
+                            snzu_boxNew("number");
+                            snzu_boxSetDisplayStr(&main_font, numberColor, snz_arenaFormatStr(scratch, "%d", roomNumber));
+                            snzu_boxSetSizeFitText(TEXT_PADDING);
+                            snzu_boxSetSizeFromStartAx(SNZU_AX_X, roomNumberColWidth + 2 * TEXT_PADDING);
+
+                            for (int i = 0; i < room->people.count; i++) {
+                                Person* p = room->people.elems[i];
+                                snzu_boxNew(snz_arenaFormatStr(scratch, "%p", p));
+                                snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, p->name.elems, p->name.count);
+                                snzu_boxSetSizeFitText(TEXT_PADDING);
+                            }
+                        }
+                        snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_X);
+                    }
+                } // end margin
+                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+                snzu_boxSetSizeFitChildren();
+            } // end scroller
             snzuc_scrollArea();
         }
     }
