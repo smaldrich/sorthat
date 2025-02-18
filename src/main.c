@@ -139,7 +139,8 @@ snz_Arena main_fileArenaB = { 0 };
 #define COL_PANEL HMM_V4(0, 0, 0, 0)
 #define COL_PANEL_A HMM_V4(33.0/255, 38.0/255, 40.0/255, 1.0)
 #define COL_PANEL_B HMM_V4(40.0/255, 37.0/255, 33.0/255, 1.0)
-#define COL_PANEL_ERROR HMM_V4(121.0/255, 64.0/255, 61.0/255, 1.0)
+#define COL_PANEL_ERROR HMM_V4(99.0/255, 48.0/255, 46.0/255, 1.0)
+#define COL_ERROR_TEXT HMM_V4(255.0/255, 141.0/255, 141.0/255, 1.0)
 #define TEXT_PADDING 7
 
 void main_pushToArenaIfNotInCollection(void** collection, int64_t collectionCount, void* new, snz_Arena* arena) {
@@ -526,7 +527,16 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                             for (int i = 0; i < room->people.count; i++) {
                                 Person* p = room->people.elems[i];
                                 snzu_boxNew(snz_arenaFormatStr(scratch, "%p", p));
-                                snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, p->name.elems, p->name.count);
+                                bool anyMatches = false;
+                                for (int j = 0; j < p->wants.count; j++) {
+                                    Person* wanted = p->wants.elems[j];
+                                    if (main_personInPersonSlice(wanted, room->people)) {
+                                        anyMatches = true;
+                                        break;
+                                    }
+                                }
+
+                                snzu_boxSetDisplayStrLen(&main_font, anyMatches ? COL_TEXT : COL_ERROR_TEXT, p->name.elems, p->name.count);
                                 snzu_boxSetSizeFitText(TEXT_PADDING);
                             }
                         }
