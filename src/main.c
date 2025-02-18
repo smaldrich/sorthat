@@ -116,6 +116,13 @@ struct Person {
 
 SNZ_SLICE(Person);
 
+typedef struct {
+    Person* a;
+    Person* b;
+} PersonPair;
+
+SNZ_SLICE(PersonPair);
+
 PersonSlice people = { 0 };
 snz_Arena main_fileArenaA = { 0 };
 snz_Arena main_fileArenaB = { 0 };
@@ -125,6 +132,16 @@ snz_Arena main_fileArenaB = { 0 };
 #define COL_PANEL HMM_V4(0, 0, 0, 0)
 #define COL_PANEL_A HMM_V4(33.0/255, 38.0/255, 40.0/255, 1.0)
 #define COL_PANEL_B HMM_V4(40.0/255, 37.0/255, 33.0/255, 1.0)
+
+void main_pushToArenaIfNotInCollection(void** collection, int64_t collectionCount, void* new, snz_Arena* arena) {
+    for (int64_t i = 0; i < collectionCount; i++) {
+        void* ptr = collection[i];
+        if (ptr == new) {
+            return;
+        }
+    }
+    *SNZ_ARENA_PUSH(arena, void*) = new;
+}
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     assert(scratch || !scratch);
@@ -154,58 +171,137 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     fclose(f);
 
-    const char* genderStrs[2] = { "Male", "Female" };
-    HMM_Vec4 genderColors[2] = {
-        COL_PANEL_A,
-        COL_PANEL_B,
-    };
-    for (int i = 0; i < people.count; i++) {
-        Person* p = &people.elems[i];
-        for (int i = 0; i < 2; i++) {
-            int minLen = SNZ_MIN(strlen(genderStrs[i]), (uint64_t)p->name.count);
-            if (strncmp(genderStrs[i], p->fileLine.elems[1].elems, minLen) == 0) {
-                p->genderColor = genderColors[i];
-                break;
-            }
-        }
-        SNZ_ASSERT(p->genderColor.A != 0, "person didn't find a gender color");
-    }
-
-    // make ptrs between ppl instead of dealing with names
-    for (int i = 0; i < people.count; i++) {
-        Person* p = &people.elems[i];
-        CharSlice names = p->fileLine.elems[2];
-        if (names.elems[0] == '"') {
-            SNZ_ASSERT(names.count >= 2, "empty names cell");
-            SNZ_ASSERT(names.elems[names.count - 1] == '"', "names cell w no end quote");
-            names.count -= 2;
-            names.elems++;
-        }
-        CharSliceSlice wantedNames = main_strSplit(names, ',', scratch);
-        for (int i = 0; i < wantedNames.count; i++) {
-            main_charSliceTrim(&wantedNames.elems[i]);
-        }
-
-        SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
-        for (int otherIdx = 0; otherIdx < people.count; otherIdx++) {
-            Person* other = &people.elems[otherIdx];
-            for (int wantedIdx = 0; wantedIdx < wantedNames.count; wantedIdx++) {
-                CharSlice wanted = wantedNames.elems[wantedIdx];
-                if (main_charSliceEqual(wanted, other->name)) {
-                    *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = other;
+    { // coloring by gender
+        const char* genderStrs[2] = { "Male", "Female" };
+        HMM_Vec4 genderColors[2] = {
+            COL_PANEL_A,
+            COL_PANEL_B,
+        };
+        for (int i = 0; i < people.count; i++) {
+            Person* p = &people.elems[i];
+            for (int i = 0; i < 2; i++) {
+                int minLen = SNZ_MIN(strlen(genderStrs[i]), (uint64_t)p->name.count);
+                if (strncmp(genderStrs[i], p->fileLine.elems[1].elems, minLen) == 0) {
+                    p->genderColor = genderColors[i];
+                    break;
                 }
             }
+            SNZ_ASSERT(p->genderColor.A != 0, "person didn't find a gender color");
         }
-        p->wants = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
+    }
+
+    { // generating/validating wants
+        for (int i = 0; i < people.count; i++) {
+            Person* p = &people.elems[i];
+            CharSlice names = p->fileLine.elems[2];
+            if (names.elems[0] == '"') {
+                SNZ_ASSERT(names.count >= 2, "empty names cell");
+                SNZ_ASSERT(names.elems[names.count - 1] == '"', "names cell w no end quote");
+                names.count -= 2;
+                names.elems++;
+            }
+            CharSliceSlice wantedNames = main_strSplit(names, ',', scratch);
+            for (int i = 0; i < wantedNames.count; i++) {
+                main_charSliceTrim(&wantedNames.elems[i]);
+            }
+
+            SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
+            for (int otherIdx = 0; otherIdx < people.count; otherIdx++) {
+                Person* other = &people.elems[otherIdx];
+                for (int wantedIdx = 0; wantedIdx < wantedNames.count; wantedIdx++) {
+                    CharSlice wanted = wantedNames.elems[wantedIdx];
+                    if (main_charSliceEqual(wanted, other->name)) {
+                        // FIXME: gender check?
+                        *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = other;
+                    }
+                }
+            }
+            p->wants = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
+        }
+    }
+
+    // counting wants
+    for (int i = 0; i < people.count; i++) {
+        Person* p = &people.elems[i];
+        for (int j = 0; j < p->wants.count; j++) {
+            Person* other = p->wants.elems[j];
+            other->wantsCount++;
+        }
+    }
+
+    // strong pairs
+    SNZ_ARENA_ARR_BEGIN(&main_fileArenaB, PersonPair);
+    for (int i = 0; i < people.count; i++) {
+        Person* p = &people.elems[i];
+        for (int j = i; j < people.count; j++) {
+            Person* other = &people.elems[j];
+
+            bool found = false;
+            for (int k = 0; k < p->wants.count; k++) {
+                if (p->wants.elems[k] == other) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                continue;
+            }
+
+            found = false;
+            for (int k = 0; k < other->wants.count; k++) {
+                if (other->wants.elems[k] == p) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                continue;
+            }
+
+            *SNZ_ARENA_PUSH(&main_fileArenaB, PersonPair) = (PersonPair){
+                .a = p,
+                .b = other,
+            };
+        }
+    }
+    PersonPairSlice strongPairs = SNZ_ARENA_ARR_END(&main_fileArenaB, PersonPair);
+    SNZ_ASSERT(strongPairs.elems || !strongPairs.elems, "AAHH");
+
+    // adjacents
+    for (int i = 0; i < people.count; i++) {
+        Person* p = &people.elems[i];
+
+        SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
+        void* beginning = main_fileArenaA.end;
+        for (int j = 0; j < p->wants.count; j++) {
+            int64_t count = (void**)main_fileArenaA.end - (void**)beginning; // FIXME: kill me
+            main_pushToArenaIfNotInCollection(beginning, count, p->wants.elems[j], &main_fileArenaA);
+        }
+        for (int j = i; j < people.count; j++) {
+            Person* other = &people.elems[j];
+            bool inAdj = false;
+            for (int k = 0; k < other->wants.count; k++) {
+                if (other->wants.elems[k] == p) {
+                    inAdj = true;
+                }
+            }
+            if (!inAdj) {
+                continue;
+            }
+            int64_t count = (void**)main_fileArenaA.end - (void**)beginning; // FIXME: kill me
+            main_pushToArenaIfNotInCollection(beginning, count, &people.elems[j], &main_fileArenaA);
+        }
+        p->adjacents = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
+
+        // printf("\n\nadjs for %.*s:\n", (int)p->name.count, p->name.elems);
+        // for (int j = 0; j < p->adjacents.count; j++) {
+        //     Person* adj = p->adjacents.elems[j];
+        //     printf("%.*s, ", (int)adj->name.count, adj->name.elems);
+        // }
     }
 }
 
 void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
-    assert(dt || !dt);
-    assert(scratch || !scratch);
-    assert(inputs.mouseScrollY || !inputs.mouseScrollY);
-    assert(screenSize.X || !screenSize.X);
-
     snzu_instanceSelect(&main_inst);
     snzu_frameStart(scratch, screenSize, dt);
 
