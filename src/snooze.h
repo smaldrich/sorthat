@@ -1778,6 +1778,11 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
         window = SDL_CreateWindow(windowTitle, 100, 100, 700, 500, windowFlags);
         SNZ_ASSERT(window, "sdl window creation failed.");
 
+        SDL_GLContext context = SDL_GL_CreateContext(window);
+        SNZ_ASSERT(context, "sdl gl context creation failed");
+        SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        SNZ_ASSERT(renderer, "sdl renderer creation failed");
+
         if (iconPath != NULL) {
             SDL_Surface* s = SDL_LoadBMP(iconPath);
             char buf[1000] = { 0 };
@@ -1786,12 +1791,6 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
             SNZ_ASSERT(s != NULL, "icon load failed.");
             SDL_SetWindowIcon(window, s);
         }
-
-        SDL_GLContext context = SDL_GL_CreateContext(window);
-        SNZ_ASSERT(context, "sdl gl context creation failed");
-        SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-        SNZ_ASSERT(renderer, "sdl renderer creation failed");
-
     }
 
     snz_Arena frameArena = snz_arenaInit(1000000000, "snz frame arena");
@@ -1927,7 +1926,7 @@ void snzuc_scrollArea() {
             if (scrollBarSize > 0 && scrollBarSize < containerHeight) {
                 snzu_boxSetStartFromParentAx(scrollBarStart, SNZU_AX_Y);
                 snzu_boxSetSizeFromStartAx(SNZU_AX_Y, scrollBarSize);
-                snzu_boxSetColor(HMM_V4(0.8, 0.8, 0.8, 0.4));
+                snzu_boxSetColor(HMM_V4(0.8, 0.8, 0.8, 0.2));
             }
         }
     }  // exit container

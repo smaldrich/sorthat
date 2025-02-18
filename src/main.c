@@ -120,13 +120,19 @@ PersonSlice people = { 0 };
 snz_Arena main_fileArenaA = { 0 };
 snz_Arena main_fileArenaB = { 0 };
 
+#define COL_BACKGROUND HMM_V4(32.0/255, 27.0/255, 27.0/255, 1.0)
+#define COL_TEXT HMM_V4(1, 1, 1, 1)
+#define COL_PANEL HMM_V4(0, 0, 0, 0)
+#define COL_PANEL_A HMM_V4(33.0/255, 38.0/255, 40.0/255, 1.0)
+#define COL_PANEL_B HMM_V4(40.0/255, 37.0/255, 33.0/255, 1.0)
+
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     assert(scratch || !scratch);
     assert(window || !window);
 
     main_inst = snzu_instanceInit();
     main_fontArena = snz_arenaInit(10000000, "main font arena");
-    main_font = snzr_fontInit(&main_fontArena, scratch, "res/OpenSans-Light.ttf", 20);
+    main_font = snzr_fontInit(&main_fontArena, scratch, "res/AzeretMono-Regular.ttf", 16);
 
     main_fileArenaA = snz_arenaInit(10000000, "main file arena A");
     main_fileArenaB = snz_arenaInit(10000000, "main file arena B");
@@ -150,8 +156,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     const char* genderStrs[2] = { "Male", "Female" };
     HMM_Vec4 genderColors[2] = {
-        HMM_V4(0.8, 0.9, 0.95, 1),
-        HMM_V4(0.95, 0.9, 0.8, 1),
+        COL_PANEL_A,
+        COL_PANEL_B,
     };
     for (int i = 0; i < people.count; i++) {
         Person* p = &people.elems[i];
@@ -205,7 +211,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
 
     snzu_boxNew("main box");
     snzu_boxFillParent();
-    snzu_boxSetColor(HMM_V4(1, 1, 1, 1));
+    snzu_boxSetColor(COL_BACKGROUND);
     snzu_boxScope() {
         snzu_boxNew("left side");
         snzu_boxFillParent();
@@ -213,7 +219,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
         snzu_boxScope() {
             snzu_boxNew("scroller");
             snzu_boxSetSizeMarginFromParent(10);
-            snzu_boxSetColor(HMM_V4(0.95, 0.95, 0.95, 1));
+            snzu_boxSetColor(COL_PANEL);
             snzu_boxScope() {
                 float sizeOfPeopleCol = 0;
                 for (int i = 0; i < people.count; i++) {
@@ -221,7 +227,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     HMM_Vec2 s = snzr_strSize(&main_font, p->name.elems, p->name.count, main_font.renderedSize);
                     sizeOfPeopleCol = SNZ_MAX(s.X, sizeOfPeopleCol);
                 }
-                float textPadding = 4;
+                float textPadding = 7;
                 float boxHeight = main_font.renderedSize + 2 * textPadding;
 
                 snzu_boxNew("margin");
@@ -234,10 +240,9 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                         snzu_boxSetCornerRadius(10);
                         snzu_boxFillParent();
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, boxHeight);
-                        snzu_boxSetEndFromParentEndAx(-20, SNZU_AX_X); // FIXME: build this in as a setting
                         snzu_boxScope() {
                             snzu_boxNew("name");
-                            snzu_boxSetDisplayStrLen(&main_font, HMM_V4(0, 0, 0, 1), p->name.elems, p->name.count);
+                            snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, p->name.elems, p->name.count);
                             snzu_boxSetSizeFitText(textPadding);
                             snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
                             snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
@@ -249,7 +254,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                 for (int i = 0; i < p->wants.count; i++) {
                                     snzu_boxNew(snz_arenaFormatStr(scratch, "%d", i));
                                     Person* other = p->wants.elems[i];
-                                    snzu_boxSetDisplayStrLen(&main_font, HMM_V4(0, 0, 0, 1), other->name.elems, other->name.count);
+                                    snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, other->name.elems, other->name.count);
                                     snzu_boxSetSizeFitText(textPadding);
                                 }
                             }
@@ -262,6 +267,22 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
             } // end scroller
             snzuc_scrollArea();
         } // end left side
+
+        snzu_boxNew("right side");
+        snzu_boxFillParent();
+        snzu_boxSizeFromEndPctParent(0.5, SNZU_AX_X);
+        snzu_boxScope() {
+            snzu_boxNew("scroller");
+            snzu_boxSetSizeMarginFromParent(10);
+            snzu_boxSetColor(COL_PANEL);
+            snzu_boxScope() {
+                snzu_boxNew("ahh");
+                snzu_boxSetDisplayStr(&main_font, COL_TEXT, "Hello world!");
+                snzu_boxSetSizeFitText(5);
+            }
+            snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+            snzuc_scrollArea();
+        }
     }
 
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 10000);
