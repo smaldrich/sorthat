@@ -139,6 +139,7 @@ snz_Arena main_fileArenaB = { 0 };
 #define COL_PANEL HMM_V4(0, 0, 0, 0)
 #define COL_PANEL_A HMM_V4(33.0/255, 38.0/255, 40.0/255, 1.0)
 #define COL_PANEL_B HMM_V4(40.0/255, 37.0/255, 33.0/255, 1.0)
+#define COL_PANEL_ERROR HMM_V4(121.0/255, 64.0/255, 61.0/255, 1.0)
 #define TEXT_PADDING 7
 
 void main_pushToArenaIfNotInCollection(void** collection, int64_t collectionCount, void* new, snz_Arena* arena) {
@@ -507,7 +508,11 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     for (Room* room = main_firstRoom; room; (room = room->next, roomNumber++)) {
                         snzu_boxNew(snz_arenaFormatStr(scratch, "%p", room));
                         SNZ_ASSERT(room->people.count > 0, "empty room??");
-                        snzu_boxSetColor(room->people.elems[0]->genderColor);
+                        HMM_Vec4 color = room->people.elems[0]->genderColor;
+                        if (room->people.count <= 2) {
+                            color = COL_PANEL_ERROR;
+                        }
+                        snzu_boxSetColor(color);
                         snzu_boxSetCornerRadius(10);
                         snzu_boxClipChildren(true);
                         snzu_boxFillParent();
