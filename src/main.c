@@ -105,12 +105,20 @@ void main_charSliceTrim(CharSlice* s) {
 typedef struct Person Person;
 SNZ_SLICE_NAMED(Person*, PersonPtrSlice);
 
+typedef struct {
+    CharSlice name;
+    Person* person; // may be null to indicate failure
+} PersonWant;
+
+SNZ_SLICE(PersonWant);
+
 struct Person {
     CharSliceSlice fileLine;
 
     CharSlice name;
     HMM_Vec4 genderColor;
-    PersonPtrSlice wants;
+    PersonWantSlice wantsFromFile;
+    PersonPtrSlice validWants;
     PersonPtrSlice adjacents;
     int wantsCount;
 
@@ -195,8 +203,8 @@ void main_autogroup(snz_Arena* scratch) {
             Person* other = &main_people.elems[j];
 
             bool found = false;
-            for (int k = 0; k < p->wants.count; k++) {
-                if (p->wants.elems[k] == other) {
+            for (int k = 0; k < p->wantsFromFile.count; k++) {
+                if (p->validWants.elems[k] == other) {
                     found = true;
                     break;
                 }
@@ -206,8 +214,8 @@ void main_autogroup(snz_Arena* scratch) {
             }
 
             found = false;
-            for (int k = 0; k < other->wants.count; k++) {
-                if (other->wants.elems[k] == p) {
+            for (int k = 0; k < other->wantsFromFile.count; k++) {
+                if (other->validWants.elems[k] == p) {
                     found = true;
                     break;
                 }
@@ -393,27 +401,46 @@ void main_import(snz_Arena* scratch) {
                 main_charSliceTrim(&wantedNames.elems[i]);
             }
 
-            SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
+            SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, PersonWant);
+            for (int i = 0; i < wantedNames.count; i++) {
+                *SNZ_ARENA_PUSH(&main_fileArenaA, PersonWant) = (PersonWant){
+                    .name = wantedNames.elems[i],
+                    .person = NULL,
+                };
+            }
+            p->wantsFromFile = SNZ_ARENA_ARR_END(&main_fileArenaA, PersonWant);
+
             for (int otherIdx = 0; otherIdx < main_people.count; otherIdx++) {
                 Person* other = &main_people.elems[otherIdx];
-                for (int wantedIdx = 0; wantedIdx < wantedNames.count; wantedIdx++) {
-                    CharSlice wanted = wantedNames.elems[wantedIdx];
-                    if (main_charSliceEqual(wanted, other->name)) {
-                        // FIXME: gender check?
-                        *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = other;
+                for (int wantedIdx = 0; wantedIdx < p->wantsFromFile.count; wantedIdx++) {
+                    PersonWant* wanted = &p->wantsFromFile.elems[wantedIdx];
+                    if (main_charSliceEqual(wanted->name, other->name)) {
+                        wanted->person = other;
                     }
                 }
             }
-            p->wants = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
-        }
+
+            SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
+            for (int i = 0; i < p->wantsFromFile.count; i++) {
+                PersonWant* w = &p->wantsFromFile.elems[i];
+                if (w->person) {
+                    *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = w->person;
+                }
+            }
+            p->validWants = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
+
+        } // end validating wants
     }
 
     // counting wants
     for (int i = 0; i < main_people.count; i++) {
         Person* p = &main_people.elems[i];
-        for (int j = 0; j < p->wants.count; j++) {
-            Person* other = p->wants.elems[j];
-            other->wantsCount++;
+        for (int j = 0; j < p->wantsFromFile.count; j++) {
+            PersonWant* w = &p->wantsFromFile.elems[j];
+            if (!w->person) {
+                continue;
+            }
+            w->person->wantsCount++;
         }
     }
 
@@ -423,15 +450,15 @@ void main_import(snz_Arena* scratch) {
 
         SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
         void* beginning = main_fileArenaA.end;
-        for (int j = 0; j < p->wants.count; j++) {
+        for (int j = 0; j < p->wantsFromFile.count; j++) {
             int64_t count = (void**)main_fileArenaA.end - (void**)beginning; // FIXME: kill me
-            main_pushToArenaIfNotInCollection(beginning, count, p->wants.elems[j], &main_fileArenaA);
+            main_pushToArenaIfNotInCollection(beginning, count, p->validWants.elems[j], &main_fileArenaA);
         }
         for (int j = i; j < main_people.count; j++) {
             Person* other = &main_people.elems[j];
             bool inAdj = false;
-            for (int k = 0; k < other->wants.count; k++) {
-                if (other->wants.elems[k] == p) {
+            for (int k = 0; k < other->wantsFromFile.count; k++) {
+                if (other->validWants.elems[k] == p) {
                     inAdj = true;
                 }
             }
@@ -586,9 +613,15 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                 snzu_boxFillParent();
                                 snzu_boxSetStartFromParentAx(sizeOfPeopleCol, SNZU_AX_X);
                                 snzu_boxScope() {
-                                    for (int i = 0; i < p->wants.count; i++) {
-                                        Person* other = p->wants.elems[i];
-                                        main_buildPerson(other, COL_TEXT, scratch);
+                                    for (int i = 0; i < p->wantsFromFile.count; i++) {
+                                        PersonWant w = p->wantsFromFile.elems[i];
+                                        if (w.person) {
+                                            main_buildPerson(w.person, COL_TEXT, scratch);
+                                        } else {
+                                            snzu_boxNew(snz_arenaFormatStr(scratch, "%s", w.name));
+                                            snzu_boxSetDisplayStrLen(&main_font, COL_ERROR_TEXT, w.name.elems, w.name.count);
+                                            snzu_boxSetSizeFitText(TEXT_PADDING);
+                                        }
                                     }
                                 }
                                 snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_X);
@@ -645,8 +678,8 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                 for (int i = 0; i < room->people.count; i++) {
                                     Person* p = room->people.elems[i];
                                     bool anyMatches = false;
-                                    for (int j = 0; j < p->wants.count; j++) {
-                                        Person* wanted = p->wants.elems[j];
+                                    for (int j = 0; j < p->wantsFromFile.count; j++) {
+                                        Person* wanted = p->validWants.elems[j];
                                         if (main_personInPersonSlice(wanted, room->people)) {
                                             anyMatches = true;
                                             break;
