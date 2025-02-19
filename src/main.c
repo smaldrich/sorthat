@@ -185,9 +185,17 @@ void main_clear() {
     main_firstRoom = NULL;
 }
 
-void main_import(const char* path, snz_Arena* scratch) {
+void main_import(snz_Arena* scratch) {
+    nfdchar_t* path = NULL;
+    nfdresult_t result = NFD_OpenDialog(NULL, NULL, &path);
+    if (result != NFD_OKAY) {
+        return;
+    }
     FILE* f = fopen(path, "r");
-    SNZ_ASSERT(f, "opening file failed.");
+    SNZ_ASSERTF(f, "opening file %s failed.", f);
+
+    free(path);
+
 
     main_clear();
 
@@ -442,15 +450,15 @@ void main_autogroup(snz_Arena* scratch) {
     }
 } // end autogroup
 
-void main_export(const char* path) {
+void main_export() {
     nfdchar_t* outPath = NULL;
-    nfdresult_t result = NFD_OpenDialog(NULL, NULL, &outPath);
+    nfdresult_t result = NFD_SaveDialog(NULL, NULL, &outPath);
     if (result != NFD_OKAY) {
         return;
     }
 
-    FILE* f = fopen(path, "w");
-    SNZ_ASSERTF(f, "opening file '%s' failed.", path);
+    FILE* f = fopen(outPath, "w");
+    SNZ_ASSERTF(f, "opening file '%s' failed.", outPath);
     free(outPath);
 
     for (Room* room = main_firstRoom; room; room = room->next) {
@@ -511,7 +519,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     main_clear();
                 }
                 if (main_button("import")) {
-                    main_import("hotel room sort data_v1.csv", scratch);
+                    main_import(scratch);
                 }
                 if (main_button("autogroup")) {
                     main_autogroup(scratch);
