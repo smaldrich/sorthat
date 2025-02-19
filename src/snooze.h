@@ -1745,6 +1745,18 @@ void snzu_easeExp(float* in, float target, float pctPerSec) {
     }
 }
 
+void snzu_easeLinear(float* in, float target, float pctPerSec) {
+    float dir = 0;
+    if (target > 0) {
+        dir = 1;
+    } else {
+        dir = -1;
+    }
+    *in += pctPerSec * _snzu_instance->timeSinceLastFrame * dir;
+    *in = SNZ_MIN(1, *in);
+    *in = SNZ_MAX(0, *in);
+}
+
 void snzu_boxHighlightByAnim(float* anim, HMM_Vec4 baseColor, float diff) {
     HMM_Vec4 highlightCol = HMM_AddV4(baseColor, HMM_V4(diff, diff, diff, 0));
     snzu_boxSetColor(HMM_LerpV4(baseColor, *anim, highlightCol));

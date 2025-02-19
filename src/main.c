@@ -339,31 +339,57 @@ void main_autogroup(snz_Arena* scratch) {
     }
 } // end autogroup
 
-void main_import(snz_Arena* scratch) {
-    nfdchar_t* path = NULL;
-    nfdresult_t result = NFD_OpenDialog(NULL, NULL, &path);
-    if (result != NFD_OKAY) {
-        return;
-    }
-    FILE* f = fopen(path, "r");
-    SNZ_ASSERTF(f, "opening file %s failed.", f);
-    free(path);
-
-    main_clear();
-
+void _main_importWithErrors(FILE* f, snz_Arena* scratch, const char** outErrorString) {
     main_readUntil(f, '\n', scratch); // skip first line bc there are garbage bits + it's not useful
 
     SNZ_ARENA_ARR_BEGIN(&main_fileArenaB, Person);
+    int lineNum = 0;
     while (!feof(f)) {
+        lineNum++;
+        CharSliceSlice line = main_readCSVLine(f, &main_fileArenaA);
+        if (line.count != 3) {
+            *outErrorString = snz_arenaFormatStr(scratch, "Line %d was formatted wrong.", lineNum);
+            SNZ_ARENA_ARR_END(&main_fileArenaB, Person);
+            return;
+        }
         Person* p = SNZ_ARENA_PUSH(&main_fileArenaB, Person);
-        p->fileLine = main_readCSVLine(f, &main_fileArenaA);
-        SNZ_ASSERTF(p->fileLine.count == 3, "Person file line had %d elts.", p->fileLine.count);
+        p->fileLine = line;
         p->name = p->fileLine.elems[0];
         main_charSliceTrim(&p->name);
     }
     main_people = SNZ_ARENA_ARR_END(&main_fileArenaB, Person);
 
+    if (main_people.count == 0) {
+        *outErrorString = "No people in the file.";
+    }
+}
+
+// out error str set when any error occurs, will be a user facing string. Str may be formatted into scratch.
+void main_import(snz_Arena* scratch, const char** outErrorStr) {
+    *outErrorStr = NULL;
+
+    nfdchar_t* path = NULL;
+    {
+        nfdresult_t result = NFD_OpenDialog(NULL, NULL, &path);
+        if (result != NFD_OKAY) {
+            return;
+        }
+        char* newPath = snz_arenaCopyStr(scratch, path);
+        free(path);
+        path = newPath;
+    }
+    FILE* f = fopen(path, "r");
+    if (!f) {
+        *outErrorStr = snz_arenaFormatStr(scratch, "Opening file '%s' failed.", path);
+        return;
+    }
+    main_clear();
+    _main_importWithErrors(f, scratch, outErrorStr);
     fclose(f);
+
+    if (*outErrorStr != NULL) {
+        return;
+    }
 
     { // coloring by gender
         const char* genderStrs[2] = { "Male", "Female" };
@@ -535,6 +561,39 @@ bool main_button(const char* label) {
     return inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP;
 }
 
+// if message non-null will start a message box and fade it out over time.
+// sets the message ptr to null
+// the string may be freed immediately after calling this
+void main_messageBoxBuild(bool error, const char** message) {
+    snzu_boxNew("messageBox");
+    float* fadeAnim = SNZU_USE_MEM(float, "fadeAnim");
+
+    if (*message) {
+        *fadeAnim = 1;
+    }
+
+    if (*fadeAnim > 0.001) {
+        int count = *message ? strlen(*message) : 0;
+        char* const messageCopy = SNZU_USE_ARRAY(char, count, "msg");
+        if (*message) {
+            strcpy(messageCopy, *message);
+        }
+        snzu_easeLinear(fadeAnim, 0, 0.25);
+
+        snzu_boxSetSizeMarginFromParent(30);
+        snzu_boxSizeFromEndPctParent(0.3, SNZU_AX_Y);
+        snzu_boxSetColor(HMM_Lerp(HMM_V4(0, 0, 0, 0), *fadeAnim, COL_BACKGROUND));
+        HMM_Vec4 targetBorderCol = error ? COL_ERROR_TEXT : COL_TEXT;
+        snzu_boxSetBorder(BORDER_THICKNESS, HMM_Lerp(HMM_V4(0, 0, 0, 0), *fadeAnim, targetBorderCol));
+        snzu_boxSetCornerRadius(10);
+        snzu_boxSetDisplayStr(&main_font, HMM_Lerp(HMM_V4(0, 0, 0, 0), *fadeAnim, COL_TEXT), messageCopy);
+    }
+
+    *message = NULL;
+}
+
+const char* main_messageBoxMessageSignal = NULL;
+
 void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
     snzu_instanceSelect(&main_inst);
     snzu_frameStart(scratch, screenSize, dt);
@@ -554,7 +613,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     main_clear();
                 }
                 if (main_button("import")) {
-                    main_import(scratch);
+                    main_import(scratch, &main_messageBoxMessageSignal);
                 }
                 if (main_button("autogroup")) {
                     main_autogroup(scratch);
@@ -721,6 +780,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
             p->hovered = false;
         }
 
+        main_messageBoxBuild(true, &main_messageBoxMessageSignal);
     } // end main parent
 
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 10000);
