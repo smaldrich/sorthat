@@ -1745,7 +1745,7 @@ void snzu_easeExp(float* in, float target, float pctPerSec) {
     }
 }
 
-void snzu_easeLinear(float* in, float target, float pctPerSec) {
+void snzu_easeLinearUnbounded(float* in, float target, float pctPerSec) {
     float dir = 0;
     if (target > 0) {
         dir = 1;
@@ -1753,6 +1753,10 @@ void snzu_easeLinear(float* in, float target, float pctPerSec) {
         dir = -1;
     }
     *in += pctPerSec * _snzu_instance->timeSinceLastFrame * dir;
+}
+
+void snzu_easeLinear(float* in, float target, float pctPerSec) {
+    snzu_easeLinearUnbounded(in, target, pctPerSec);
     *in = SNZ_MIN(1, *in);
     *in = SNZ_MAX(0, *in);
 }

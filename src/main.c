@@ -339,7 +339,7 @@ void main_autogroup(snz_Arena* scratch) {
     }
 } // end autogroup
 
-void _main_importWithErrors(FILE* f, snz_Arena* scratch, const char** outErrorString) {
+void _main_importWithErrors(FILE* f, const char* pathForErrorMessage, snz_Arena* scratch, const char** outErrorString) {
     main_readUntil(f, '\n', scratch); // skip first line bc there are garbage bits + it's not useful
 
     SNZ_ARENA_ARR_BEGIN(&main_fileArenaB, Person);
@@ -348,7 +348,7 @@ void _main_importWithErrors(FILE* f, snz_Arena* scratch, const char** outErrorSt
         lineNum++;
         CharSliceSlice line = main_readCSVLine(f, &main_fileArenaA);
         if (line.count != 3) {
-            *outErrorString = snz_arenaFormatStr(scratch, "Line %d was formatted wrong.", lineNum);
+            *outErrorString = snz_arenaFormatStr(scratch, "Can't figure out '%s'.\nInvalid formatting on line %d.", pathForErrorMessage, lineNum);
             SNZ_ARENA_ARR_END(&main_fileArenaB, Person);
             return;
         }
@@ -384,7 +384,7 @@ void main_import(snz_Arena* scratch, const char** outErrorStr) {
         return;
     }
     main_clear();
-    _main_importWithErrors(f, scratch, outErrorStr);
+    _main_importWithErrors(f, path, scratch, outErrorStr);
     fclose(f);
 
     if (*outErrorStr != NULL) {
@@ -569,24 +569,33 @@ void main_messageBoxBuild(bool error, const char** message) {
     float* fadeAnim = SNZU_USE_MEM(float, "fadeAnim");
 
     if (*message) {
-        *fadeAnim = 1;
+        *fadeAnim = 2.5;
     }
 
     if (*fadeAnim > 0.001) {
         int count = *message ? strlen(*message) : 0;
-        char* const messageCopy = SNZU_USE_ARRAY(char, count, "msg");
+        char* const messageCopy = SNZU_USE_ARRAY(char, count, "msg"); // FIXME: segfault potential if an error gets overwritten with a longer string because usearr doesn't cope w changing sizes
         if (*message) {
             strcpy(messageCopy, *message);
         }
-        snzu_easeLinear(fadeAnim, 0, 0.25);
 
-        snzu_boxSetSizeMarginFromParent(30);
-        snzu_boxSizeFromEndPctParent(0.3, SNZU_AX_Y);
-        snzu_boxSetColor(HMM_Lerp(HMM_V4(0, 0, 0, 0), *fadeAnim, COL_BACKGROUND));
-        HMM_Vec4 targetBorderCol = error ? COL_ERROR_TEXT : COL_TEXT;
-        snzu_boxSetBorder(BORDER_THICKNESS, HMM_Lerp(HMM_V4(0, 0, 0, 0), *fadeAnim, targetBorderCol));
+        snzu_boxSizePctParent(.3, SNZU_AX_X);
+        snzu_boxSizePctParent(.3, SNZU_AX_Y);
+        snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
+        snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
         snzu_boxSetCornerRadius(10);
-        snzu_boxSetDisplayStr(&main_font, HMM_Lerp(HMM_V4(0, 0, 0, 0), *fadeAnim, COL_TEXT), messageCopy);
+
+        snzu_easeLinearUnbounded(fadeAnim, 0, 1);
+
+        float lerpT = SNZ_MIN(1, *fadeAnim);
+        if (lerpT < 0) {
+            lerpT = 0;
+        }
+
+        HMM_Vec4 targetBorderCol = error ? COL_ERROR_TEXT : COL_TEXT;
+        snzu_boxSetBorder(BORDER_THICKNESS, HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, targetBorderCol));
+        snzu_boxSetColor(HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, COL_BACKGROUND));
+        snzu_boxSetDisplayStr(&main_font, HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, COL_TEXT), messageCopy);
     }
 
     *message = NULL;
@@ -619,7 +628,11 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     main_autogroup(scratch);
                 }
                 if (main_button("export")) {
-                    main_export("thing.csv");
+                    if (main_firstRoom) {
+                        main_export();
+                    } else {
+                        main_messageBoxMessageSignal = "Can't export, there aren't any rooms yet.";
+                    }
                 }
             }
             snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
