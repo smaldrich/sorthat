@@ -92,7 +92,7 @@ void main_charSliceTrim(CharSlice* s) {
         }
     }
 
-    for (int i = s->count; final.count > 0; i--) {
+    for (int i = s->count - 1; final.count > 0; i--) {
         if (s->elems[i] == ' ') {
             final.count--;
         } else {
@@ -347,9 +347,7 @@ void main_import(snz_Arena* scratch) {
     }
     FILE* f = fopen(path, "r");
     SNZ_ASSERTF(f, "opening file %s failed.", f);
-
     free(path);
-
 
     main_clear();
 
