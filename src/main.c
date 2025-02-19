@@ -185,6 +185,152 @@ void main_clear() {
     main_firstRoom = NULL;
 }
 
+// FIXME: this leaks memory, explicitly store room data in one of the file arenas so it gets cleaned up
+void main_autogroup(snz_Arena* scratch) {
+    // strong pairs
+    SNZ_ARENA_ARR_BEGIN(scratch, PersonPair);
+    for (int i = 0; i < main_people.count; i++) {
+        Person* p = &main_people.elems[i];
+        for (int j = i; j < main_people.count; j++) {
+            Person* other = &main_people.elems[j];
+
+            bool found = false;
+            for (int k = 0; k < p->wants.count; k++) {
+                if (p->wants.elems[k] == other) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                continue;
+            }
+
+            found = false;
+            for (int k = 0; k < other->wants.count; k++) {
+                if (other->wants.elems[k] == p) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                continue;
+            }
+
+            *SNZ_ARENA_PUSH(scratch, PersonPair) = (PersonPair){
+                .a = p,
+                .b = other,
+            };
+        }
+    }
+    PersonPairSlice strongPairs = SNZ_ARENA_ARR_END(scratch, PersonPair);
+    main_firstRoom = NULL;
+
+    // actual room gen
+    PersonPtrSlice peopleRemaining = {
+        .count = main_people.count,
+        .elems = SNZ_ARENA_PUSH_ARR(scratch, main_people.count, Person*),
+    };
+    for (int i = 0; i < peopleRemaining.count; i++) {
+        peopleRemaining.elems[i] = &main_people.elems[i];
+    }
+
+    while (true) { // FIXME: cutoff?
+        Room* room = SNZ_ARENA_PUSH(&main_fileArenaA, Room);
+        SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
+        int countInRoom = 0;
+
+        PersonPair* minBasePair = NULL;
+        int minBasePairScore = 0;
+        for (int i = 0; i < strongPairs.count; i++) {
+            PersonPair* p = &strongPairs.elems[i];
+            if (main_personInPersonSlice(p->a, peopleRemaining) && main_personInPersonSlice(p->b, peopleRemaining)) {
+                int score = p->a->wantsCount + p->b->wantsCount;
+                if (!minBasePair || score < minBasePairScore) {
+                    minBasePair = p;
+                    minBasePairScore = score;
+                }
+            }
+        }
+
+        if (minBasePair) {
+            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minBasePair->a;
+            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minBasePair->b;
+            countInRoom += 2;
+        } else {
+            Person* found = NULL;
+            for (int i = 0; i < peopleRemaining.count; i++) {
+                Person* p = peopleRemaining.elems[i];
+                if (!p) {
+                    continue;
+                }
+                found = p;
+                break;
+            }
+            if (!found) {
+                SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
+                break;
+            }
+            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = found;
+            countInRoom++;
+        }
+
+        // only append the room if we know it has ppl in it
+        room->next = main_firstRoom;
+        main_firstRoom = room;
+
+        while (countInRoom < 4) {
+            SNZ_ARENA_ARR_BEGIN(scratch, Person*);
+            SNZ_ASSERT(countInRoom == main_fileArenaA.arrModeElemCount, "ew");
+            PersonPtrSlice peopleInRoom = (PersonPtrSlice){
+                .count = countInRoom,
+                .elems = (Person**)main_fileArenaA.end - countInRoom, // FIXME: some of the grossest ptr shit i've ever written, so sorry. Please fix up the arena api to let u access this safely
+            };
+            for (int i = 0; i < peopleInRoom.count; i++) {
+                Person* p = peopleInRoom.elems[i];
+                for (int j = 0; j < p->adjacents.count; j++) {
+                    Person* adj = p->adjacents.elems[j];
+                    if (!main_personInPersonSlice(adj, peopleRemaining)) {
+                        continue;
+                    } else if (main_personInPersonSlice(adj, peopleInRoom)) {
+                        continue;
+                    }
+                    *SNZ_ARENA_PUSH(scratch, Person*) = adj;
+                }
+            }
+            PersonPtrSlice adjacent = SNZ_ARENA_ARR_END_NAMED(scratch, Person*, PersonPtrSlice);
+            if (adjacent.count == 0) {
+                break;
+            }
+            Person* minAdjacent = NULL;
+            for (int i = 0; i < adjacent.count; i++) {
+                Person* adj = adjacent.elems[i];
+                if (!minAdjacent || adj->wantsCount < minAdjacent->wantsCount) {
+                    minAdjacent = adj;
+                }
+            }
+            SNZ_ASSERT(minAdjacent, "null adjacent how");
+
+            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minAdjacent;
+            countInRoom++;
+        }
+
+        room->people = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
+
+        for (int i = 0; i < room->people.count; i++) {
+            Person* p = room->people.elems[i];
+            bool found = false;
+            for (int k = 0; k < peopleRemaining.count; k++) {
+                if (peopleRemaining.elems[k] == p) {
+                    peopleRemaining.elems[k] = NULL;
+                    found = true;
+                    break;
+                }
+            }
+            SNZ_ASSERT(found, "couldn't remove person from remaining bc they weren't there.");
+        } // end removing ppl from remaining arr
+    }
+} // end autogroup
+
 void main_import(snz_Arena* scratch) {
     nfdchar_t* path = NULL;
     nfdresult_t result = NFD_OpenDialog(NULL, NULL, &path);
@@ -303,152 +449,9 @@ void main_import(snz_Arena* scratch) {
         //     printf("%.*s, ", (int)adj->name.count, adj->name.elems);
         // }
     }
+
+    main_autogroup(scratch);
 }
-
-void main_autogroup(snz_Arena* scratch) {
-    // strong pairs
-    SNZ_ARENA_ARR_BEGIN(&main_fileArenaB, PersonPair);
-    for (int i = 0; i < main_people.count; i++) {
-        Person* p = &main_people.elems[i];
-        for (int j = i; j < main_people.count; j++) {
-            Person* other = &main_people.elems[j];
-
-            bool found = false;
-            for (int k = 0; k < p->wants.count; k++) {
-                if (p->wants.elems[k] == other) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                continue;
-            }
-
-            found = false;
-            for (int k = 0; k < other->wants.count; k++) {
-                if (other->wants.elems[k] == p) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                continue;
-            }
-
-            *SNZ_ARENA_PUSH(&main_fileArenaB, PersonPair) = (PersonPair){
-                .a = p,
-                .b = other,
-            };
-        }
-    }
-    PersonPairSlice strongPairs = SNZ_ARENA_ARR_END(&main_fileArenaB, PersonPair);
-    main_firstRoom = NULL;
-
-    // actual room gen
-    PersonPtrSlice peopleRemaining = {
-        .count = main_people.count,
-        .elems = SNZ_ARENA_PUSH_ARR(scratch, main_people.count, Person*),
-    };
-    for (int i = 0; i < peopleRemaining.count; i++) {
-        peopleRemaining.elems[i] = &main_people.elems[i];
-    }
-
-    while (true) { // FIXME: cutoff?
-        Room* room = SNZ_ARENA_PUSH(&main_fileArenaA, Room);
-        SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
-        int countInRoom = 0;
-
-        PersonPair* minBasePair = NULL;
-        int minBasePairScore = 0;
-        for (int i = 0; i < strongPairs.count; i++) {
-            PersonPair* p = &strongPairs.elems[i];
-            if (main_personInPersonSlice(p->a, peopleRemaining) && main_personInPersonSlice(p->b, peopleRemaining)) {
-                int score = p->a->wantsCount + p->b->wantsCount;
-                if (!minBasePair || score < minBasePairScore) {
-                    minBasePair = p;
-                    minBasePairScore = score;
-                }
-            }
-        }
-
-        if (minBasePair) {
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minBasePair->a;
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minBasePair->b;
-            countInRoom += 2;
-        } else {
-            Person* found = NULL;
-            for (int i = 0; i < peopleRemaining.count; i++) {
-                Person* p = peopleRemaining.elems[i];
-                if (!p) {
-                    continue;
-                }
-                found = p;
-                break;
-            }
-            if (!found) {
-                SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
-                break;
-            }
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = found;
-            countInRoom++;
-        }
-
-        // only append the room if we know it has ppl in it
-        room->next = main_firstRoom;
-        main_firstRoom = room;
-
-        while (countInRoom < 4) {
-            SNZ_ARENA_ARR_BEGIN(scratch, Person*);
-            SNZ_ASSERT(countInRoom == main_fileArenaA.arrModeElemCount, "ew");
-            PersonPtrSlice peopleInRoom = (PersonPtrSlice){
-                .count = countInRoom,
-                .elems = (Person**)main_fileArenaA.end - countInRoom, // FIXME: some of the grossest ptr shit i've ever written, so sorry. Please fix up the arena api to let u access this safely
-            };
-            for (int i = 0; i < peopleInRoom.count; i++) {
-                Person* p = peopleInRoom.elems[i];
-                for (int j = 0; j < p->adjacents.count; j++) {
-                    Person* adj = p->adjacents.elems[j];
-                    if (!main_personInPersonSlice(adj, peopleRemaining)) {
-                        continue;
-                    } else if (main_personInPersonSlice(adj, peopleInRoom)) {
-                        continue;
-                    }
-                    *SNZ_ARENA_PUSH(scratch, Person*) = adj;
-                }
-            }
-            PersonPtrSlice adjacent = SNZ_ARENA_ARR_END_NAMED(scratch, Person*, PersonPtrSlice);
-            if (adjacent.count == 0) {
-                break;
-            }
-            Person* minAdjacent = NULL;
-            for (int i = 0; i < adjacent.count; i++) {
-                Person* adj = adjacent.elems[i];
-                if (!minAdjacent || adj->wantsCount < minAdjacent->wantsCount) {
-                    minAdjacent = adj;
-                }
-            }
-            SNZ_ASSERT(minAdjacent, "null adjacent how");
-
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minAdjacent;
-            countInRoom++;
-        }
-
-        room->people = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
-
-        for (int i = 0; i < room->people.count; i++) {
-            Person* p = room->people.elems[i];
-            bool found = false;
-            for (int k = 0; k < peopleRemaining.count; k++) {
-                if (peopleRemaining.elems[k] == p) {
-                    peopleRemaining.elems[k] = NULL;
-                    found = true;
-                    break;
-                }
-            }
-            SNZ_ASSERT(found, "couldn't remove person from remaining bc they weren't there.");
-        } // end removing ppl from remaining arr
-    }
-} // end autogroup
 
 void main_export() {
     nfdchar_t* outPath = NULL;
@@ -487,14 +490,21 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 bool main_button(const char* label) {
     snzu_boxNew(label);
     snzu_boxSetDisplayStr(&main_font, COL_TEXT, label);
-    snzu_boxSetSizeFitText(TEXT_PADDING);
     snzu_boxSetCornerRadius(10);
     snzu_boxSetBorder(1, COL_TEXT);
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+
     float* const hoverAnim = SNZU_USE_MEM(float, "hoverAnim");
     snzu_easeExp(hoverAnim, inter->hovered, 15);
-    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+
+    float* const pressAnim = SNZU_USE_MEM(float, "pressAnim");
+    if (inter->dragged) {
+        *pressAnim = 1;
+    }
+    snzu_easeExp(pressAnim, false, 10);
+    snzu_boxSetSizeFitText(TEXT_PADDING + 2 * *pressAnim);
 
     snzu_boxSetColor(HMM_LerpV4(HMM_V4(0, 0, 0, 0), *hoverAnim, COL_HOVERED));
     return inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP;
