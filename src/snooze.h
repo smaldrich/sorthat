@@ -1876,7 +1876,7 @@ bool snzuc_button(const snzr_Font* font, const char* title, float padding) {
     float* anim = SNZU_USE_MEM(float, "hover anim");
     snzu_easeExp(anim, inter->hovered, 20);
     snzu_boxHighlightByAnim(anim, HMM_V4(0.2, 0.2, 0.2, 1), 0.3);
-    snzu_boxSetCornerRadius(*anim * 5 + 7);
+    snzu_boxSetCornerRadius(*anim * snzu_boxGetSize().Y / 2);
 
     if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
         return true;
