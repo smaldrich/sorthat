@@ -2,6 +2,7 @@
 #include "stdbool.h"
 #include "stdint.h"
 #include "snooze.h"
+#include "nfd/include/nfd.h"
 
 snzu_Instance main_inst = { 0 };
 snzr_Font main_font = { 0 };
@@ -145,6 +146,7 @@ snz_Arena main_fileArenaB = { 0 };
 #define COL_PANEL_ERROR HMM_V4(99.0/255, 48.0/255, 46.0/255, 1.0)
 #define COL_ERROR_TEXT HMM_V4(255.0/255, 141.0/255, 141.0/255, 1.0)
 #define TEXT_PADDING 7
+#define BORDER_THICKNESS 1
 
 void main_pushToArenaIfNotInCollection(void** collection, int64_t collectionCount, void* new, snz_Arena* arena) {
     for (int64_t i = 0; i < collectionCount; i++) {
@@ -438,7 +440,29 @@ void main_autogroup(snz_Arena* scratch) {
             SNZ_ASSERT(found, "couldn't remove person from remaining bc they weren't there.");
         } // end removing ppl from remaining arr
     }
-} // end room gen
+} // end autogroup
+
+void main_export(const char* path) {
+    nfdchar_t* outPath = NULL;
+    nfdresult_t result = NFD_OpenDialog(NULL, NULL, &outPath);
+    if (result != NFD_OKAY) {
+        return;
+    }
+
+    FILE* f = fopen(path, "w");
+    SNZ_ASSERTF(f, "opening file '%s' failed.", path);
+    free(outPath);
+
+    for (Room* room = main_firstRoom; room; room = room->next) {
+        for (int i = 0; i < room->people.count; i++) {
+            Person* p = room->people.elems[i];
+            fprintf(f, "%.*s,", (int)p->name.count, p->name.elems);
+        }
+        fprintf(f, "\n");
+    }
+
+    fclose(f);
+}
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     assert(scratch || !scratch);
@@ -450,7 +474,6 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_fileArenaA = snz_arenaInit(10000000, "main file arena A");
     main_fileArenaB = snz_arenaInit(10000000, "main file arena B");
-
 }
 
 bool main_button(const char* label) {
@@ -493,15 +516,16 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                 if (main_button("autogroup")) {
                     main_autogroup(scratch);
                 }
-
-                main_button("export");
+                if (main_button("export")) {
+                    main_export("thing.csv");
+                }
             }
             snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
 
             snzu_boxNew("border");
             snzu_boxSetColor(COL_TEXT);
             snzu_boxFillParent();
-            snzu_boxSetSizeFromEndAx(SNZU_AX_X, 2);
+            snzu_boxSetSizeFromEndAx(SNZU_AX_X, BORDER_THICKNESS);
         }
 
         snzu_boxNew("main area");
@@ -533,7 +557,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                             snzu_boxSetCornerRadius(10);
                             snzu_boxFillParent();
                             snzu_boxSetSizeFromStartAx(SNZU_AX_Y, boxHeight);
-                            snzu_boxSetBorder(2, HMM_LerpV4(p->genderColor, p->hoverAnim, COL_TEXT));
+                            snzu_boxSetBorder(BORDER_THICKNESS, HMM_LerpV4(p->genderColor, p->hoverAnim, COL_TEXT));
                             snzu_boxClipChildren(true);
                             snzu_boxScope() {
                                 main_buildPerson(p, COL_TEXT, scratch);
@@ -638,7 +662,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
             snzu_boxNew("center bar");
             snzu_boxSetColor(COL_TEXT);
             snzu_boxFillParent();
-            snzu_boxSetSizeFromStartAx(SNZU_AX_X, 2);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, BORDER_THICKNESS);
             snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
         } // end container for main ui
 
