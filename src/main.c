@@ -204,7 +204,7 @@ void main_buildPerson(Person* p, bool draggable, HMM_Vec4 textColor, snz_Arena* 
         }
 
         if (main_draggedPerson == p) {
-            snzu_boxSetColor(COL_HOVERED);
+            snzu_boxSetBorder(BORDER_THICKNESS, COL_TEXT);
             snzu_boxSetDisplayStr(&main_font, COL_TEXT, "");
         } else {
             p->hovered |= inter->hovered;
@@ -893,12 +893,12 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                 Person* p = main_draggedPerson;
                 HMM_Vec2 size = snzr_strSize(&main_font, p->name.elems, p->name.count, main_font.renderedSize);
                 size = HMM_Add(size, HMM_V2(2 * TEXT_PADDING, 2 * TEXT_PADDING));
-                size = HMM_DivV2F(size, 2.0f);
-                snzu_boxSetStart(HMM_Sub(inter->mousePosGlobal, size));
-                snzu_boxSetEnd(HMM_Add(inter->mousePosGlobal, size));
+                HMM_Vec2 start = HMM_Sub(inter->mousePosGlobal, main_draggedPersonMouseOffset);
+
+                snzu_boxSetStart(start);
+                snzu_boxSetEnd(HMM_Add(start, size));
                 snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, p->name.elems, p->name.count);
             }
-
         } // end drag drop shenanigans
     } // end main parent
 
