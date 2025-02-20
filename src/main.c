@@ -149,6 +149,9 @@ snzr_Font main_font = { 0 };
 snz_Arena main_fontArena = { 0 };
 snzr_Texture main_xButton = { 0 };
 
+Person* main_draggedPerson = NULL;
+HMM_Vec2 main_draggedPersonMouseOffset = { 0 };
+
 const char* _main_messageBoxMessageSignal = NULL;
 bool _main_messageBoxShouldBeError = false;
 
@@ -187,15 +190,31 @@ bool main_personInPersonSlice(Person* p, PersonPtrSlice slice) {
     return false;
 }
 
-void main_buildPerson(Person* p, HMM_Vec4 textColor, snz_Arena* scratch) {
+void main_buildPerson(Person* p, bool draggable, HMM_Vec4 textColor, snz_Arena* scratch) {
     snzu_boxNew(snz_arenaFormatStr(scratch, "%p WOWZER", p));
     snzu_boxSetDisplayStrLen(&main_font, textColor, p->name.elems, p->name.count);
     snzu_boxSetSizeFitText(TEXT_PADDING);
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
-    p->hovered |= inter->hovered;
-    snzu_boxSetColor(HMM_LerpV4(HMM_V4(0, 0, 0, 0), p->hoverAnim, COL_HOVERED));
+    if (draggable) {
+        snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+        if (inter->dragged) {
+            main_draggedPerson = p;
+            main_draggedPersonMouseOffset = inter->dragBeginningLocal;
+        }
+
+        if (main_draggedPerson == p) {
+            snzu_boxSetColor(COL_HOVERED);
+            snzu_boxSetDisplayStr(&main_font, COL_TEXT, "");
+        } else {
+            p->hovered |= inter->hovered;
+            snzu_boxSetColor(HMM_LerpV4(HMM_V4(0, 0, 0, 0), p->hoverAnim, COL_HOVERED));
+        }
+    } else {
+        snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+        p->hovered |= inter->hovered;
+        snzu_boxSetColor(HMM_LerpV4(HMM_V4(0, 0, 0, 0), p->hoverAnim, COL_HOVERED));
+    }
 }
 
 void main_clear() {
@@ -657,6 +676,7 @@ void main_messageBoxBuild(bool error, bool explicitClose, const char** message) 
         snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
         snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
         snzu_boxSetCornerRadius(10);
+        snzu_boxSetInteractionOutput(NULL, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
 
         if (x) {
             snzu_boxSelect(x);
@@ -737,7 +757,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                             snzu_boxSetBorder(BORDER_THICKNESS, HMM_LerpV4(p->genderColor, p->hoverAnim, COL_TEXT));
                             snzu_boxClipChildren(true);
                             snzu_boxScope() {
-                                main_buildPerson(p, COL_TEXT, scratch);
+                                main_buildPerson(p, false, COL_TEXT, scratch);
                                 snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
                                 snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
 
@@ -748,7 +768,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                     for (int i = 0; i < p->wantsFromFile.count; i++) {
                                         PersonWant w = p->wantsFromFile.elems[i];
                                         if (w.person) {
-                                            main_buildPerson(w.person, COL_TEXT, scratch);
+                                            main_buildPerson(w.person, false, COL_TEXT, scratch);
                                         } else {
                                             snzu_boxNew(snz_arenaFormatStr(scratch, "%s", w.name));
                                             snzu_boxSetDisplayStrLen(&main_font, COL_ERROR_TEXT, w.name.elems, w.name.count);
@@ -820,7 +840,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                                     if (!anyMatches && !errString) {
                                         errString = snz_arenaFormatStr(scratch, "%.*s doesn't like anyone here.", (int)p->name.count, p->name.elems);
                                     }
-                                    main_buildPerson(p, anyMatches ? COL_TEXT : COL_ERROR_TEXT, scratch);
+                                    main_buildPerson(p, true, anyMatches ? COL_TEXT : COL_ERROR_TEXT, scratch);
                                 }
                             }
                             snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_X);
@@ -856,6 +876,30 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
         }
 
         main_messageBoxBuild(_main_messageBoxShouldBeError, _main_messageBoxShouldBeError, &_main_messageBoxMessageSignal);
+
+
+        snzu_boxNew("dragDropBox");
+        snzu_boxFillParent();
+        snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+        snzu_boxSetInteractionOutput(inter, SNZU_IF_MOUSE_BUTTONS | SNZU_IF_HOVER | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+        if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
+            main_draggedPerson = NULL;
+        }
+
+        if (main_draggedPerson) {
+            snzu_boxScope() {
+                snzu_boxNew("dragged thing");
+                snzu_boxSetColor(COL_HOVERED);
+                Person* p = main_draggedPerson;
+                HMM_Vec2 size = snzr_strSize(&main_font, p->name.elems, p->name.count, main_font.renderedSize);
+                size = HMM_Add(size, HMM_V2(2 * TEXT_PADDING, 2 * TEXT_PADDING));
+                size = HMM_DivV2F(size, 2.0f);
+                snzu_boxSetStart(HMM_Sub(inter->mousePosGlobal, size));
+                snzu_boxSetEnd(HMM_Add(inter->mousePosGlobal, size));
+                snzu_boxSetDisplayStrLen(&main_font, COL_TEXT, p->name.elems, p->name.count);
+            }
+
+        } // end drag drop shenanigans
     } // end main parent
 
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 10000);
