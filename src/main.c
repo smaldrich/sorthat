@@ -3,6 +3,7 @@
 #include "stdint.h"
 #include "snooze.h"
 #include "nfd/include/nfd.h"
+#include "stb/stb_image.h"
 
 snzu_Instance main_inst = { 0 };
 snzr_Font main_font = { 0 };
@@ -526,6 +527,8 @@ void main_export() {
     fclose(f);
 }
 
+snzr_Texture main_xButton = { 0 };
+
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     assert(scratch || !scratch);
     assert(window || !window);
@@ -536,6 +539,12 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_fileArenaA = snz_arenaInit(10000000, "main file arena A");
     main_fileArenaB = snz_arenaInit(10000000, "main file arena B");
+
+    int w, h, bpp;
+    stbi_set_flip_vertically_on_load(1);
+    uint8_t* data = stbi_load("res/x_button.png", &w, &h, &bpp, 4);
+    SNZ_ASSERT(data, "x button texture load failed.");
+    main_xButton = snzr_textureInitRBGA(w, h, data);
 }
 
 bool main_button(const char* label) {
@@ -564,7 +573,7 @@ bool main_button(const char* label) {
 // if message non-null will start a message box and fade it out over time.
 // sets the message ptr to null
 // the string may be freed immediately after calling this
-void main_messageBoxBuild(bool error, const char** message) {
+void main_messageBoxBuild(bool error, bool explicitClose, const char** message) {
     snzu_boxNew("messageBox");
     float* fadeAnim = SNZU_USE_MEM(float, "fadeAnim");
 
@@ -585,7 +594,34 @@ void main_messageBoxBuild(bool error, const char** message) {
         snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
         snzu_boxSetCornerRadius(10);
 
-        snzu_easeLinearUnbounded(fadeAnim, 0, 1);
+
+        if (explicitClose) {
+            *fadeAnim = 1;
+        } else {
+            snzu_easeLinearUnbounded(fadeAnim, 0, 1);
+        }
+
+        if (explicitClose) {
+            snzu_boxScope() {
+                snzu_boxNew("x");
+                snzu_boxSetSizeMarginFromParent(10);
+                snzu_boxSetSizeFromStartAx(SNZU_AX_Y, 25);
+                snzu_boxSetSizeFromEndAx(SNZU_AX_X, 25);
+                snzu_boxSetTexture(main_xButton);
+
+                snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+                snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+                float* const xHover = SNZU_USE_MEM(float, "highlight");
+                snzu_easeExp(xHover, inter->hovered, 20);
+                snzu_boxHighlightByAnim(xHover, HMM_V4(0.5, 0.5, 0.5, 1.0), 0.4);
+
+                if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+                    *fadeAnim = 0;
+                } else if (inter->keyCode == SDLK_ESCAPE) {
+                    *fadeAnim = 0;
+                }
+            }
+        } // end lil x button
 
         float lerpT = SNZ_MIN(1, *fadeAnim);
         if (lerpT < 0) {
@@ -596,7 +632,7 @@ void main_messageBoxBuild(bool error, const char** message) {
         snzu_boxSetBorder(BORDER_THICKNESS, HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, targetBorderCol));
         snzu_boxSetColor(HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, COL_BACKGROUND));
         snzu_boxSetDisplayStr(&main_font, HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, COL_TEXT), messageCopy);
-    }
+    } // end not faded check
 
     *message = NULL;
 }
@@ -793,7 +829,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
             p->hovered = false;
         }
 
-        main_messageBoxBuild(true, &main_messageBoxMessageSignal);
+        main_messageBoxBuild(true, true, &main_messageBoxMessageSignal);
     } // end main parent
 
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 10000);
