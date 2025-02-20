@@ -306,7 +306,7 @@ void main_autogroup(snz_Arena* scratch) {
 
         if (minBasePair) {
             room->people.elems[0] = minBasePair->a;
-            room->people.elems[1] = minBasePair->a;
+            room->people.elems[1] = minBasePair->b;
             room->people.count += 2;
         } else {
             Person* found = NULL;
@@ -356,7 +356,7 @@ void main_autogroup(snz_Arena* scratch) {
             }
             SNZ_ASSERT(minAdjacent, "null adjacent how");
 
-            room->people.elems[room->people.count - 1] = minAdjacent;
+            room->people.elems[room->people.count] = minAdjacent;
             room->people.count++;
         }
 
@@ -364,7 +364,8 @@ void main_autogroup(snz_Arena* scratch) {
             Person* p = room->people.elems[i];
             bool found = false;
             for (int k = 0; k < peopleRemaining.count; k++) {
-                if (peopleRemaining.elems[k] == p) {
+                Person* other = peopleRemaining.elems[k];
+                if (other == p) {
                     peopleRemaining.elems[k] = NULL;
                     found = true;
                     break;
@@ -816,9 +817,28 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                             if (main_draggedPerson) {
                                 snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
                                 snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+
+                                bool shift = false;
+                                for (int i = 0; i < room->people.count; i++) {
+                                    if (room->people.elems[i] == main_draggedPerson) {
+                                        shift = true;
+                                        continue;
+                                    }
+
+                                    if (shift) {
+                                        room->people.elems[i - 1] = room->people.elems[i];
+                                    }
+                                }
+                                if (shift) {
+                                    room->people.count--;
+                                }
+
                                 if (inter->hovered) {
-                                    color = HMM_Add(color, HMM_Sub(HMM_V4(1, 1, 1, 1), COL_HOVERED));
-                                    room->people.elems[room->people.count - 1] = main_draggedPerson;
+                                    if (room->people.count < ROOM_MAX_PERSON_COUNT) {
+                                        color = HMM_Add(color, HMM_Sub(HMM_V4(1, 1, 1, 1), COL_HOVERED));
+                                        room->people.elems[room->people.count] = main_draggedPerson;
+                                        room->people.count++;
+                                    }
                                 } else {
                                     for (int i = 0; i < room->people.count; i++) {
                                         if (room->people.elems[i] == main_draggedPerson) {
