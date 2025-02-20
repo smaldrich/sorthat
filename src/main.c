@@ -144,11 +144,10 @@ Room* main_firstRoom = NULL;
 snz_Arena main_fileArenaA = { 0 };
 snz_Arena main_fileArenaB = { 0 };
 
-snzr_Texture main_xButton = { 0 };
-
 snzu_Instance main_inst = { 0 };
 snzr_Font main_font = { 0 };
 snz_Arena main_fontArena = { 0 };
+snzr_Texture main_xButton = { 0 };
 
 const char* _main_messageBoxMessageSignal = NULL;
 bool _main_messageBoxShouldBeError = false;
@@ -384,13 +383,15 @@ bool _main_importWithErrors(FILE* f, const char* pathForErrorMessage, snz_Arena*
 
 // out error str set when any error occurs, will be a user facing string. Str may be formatted into scratch.
 void main_import(snz_Arena* scratch) {
-    main_clear();
     nfdchar_t* path = NULL;
     {
         nfdresult_t result = NFD_OpenDialog(NULL, NULL, &path);
         if (result != NFD_OKAY) {
             return;
         }
+
+        main_clear();
+
         char* newPath = snz_arenaCopyStr(&main_fileArenaA, path);
         free(path);
         path = newPath;
@@ -525,7 +526,7 @@ void main_import(snz_Arena* scratch) {
 
 void main_export(snz_Arena* scratch) {
     if (!main_firstRoom) {
-        main_startMessageBox("Can't export, there aren't any rooms yet", true);
+        main_startMessageBox("Can't export, there aren't any rooms.", true);
         return;
     }
 
@@ -616,25 +617,16 @@ void main_messageBoxBuild(bool error, bool explicitClose, const char** message) 
             strcpy(messageCopy, *message);
         }
 
-        snzu_boxSizePctParent(.3, SNZU_AX_X);
-        snzu_boxSizePctParent(.3, SNZU_AX_Y);
-        snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
-        snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
-        snzu_boxSetCornerRadius(10);
-
-
         if (explicitClose) {
             *fadeAnim = 1;
         } else {
             snzu_easeLinearUnbounded(fadeAnim, 0, 1);
         }
 
+        _snzu_Box* x = NULL;
         if (explicitClose) {
             snzu_boxScope() {
-                snzu_boxNew("x");
-                snzu_boxSetSizeMarginFromParent(10);
-                snzu_boxSetSizeFromStartAx(SNZU_AX_Y, 25);
-                snzu_boxSetSizeFromEndAx(SNZU_AX_X, 25);
+                x = snzu_boxNew("x");
                 snzu_boxSetTexture(main_xButton);
 
                 snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
@@ -660,6 +652,18 @@ void main_messageBoxBuild(bool error, bool explicitClose, const char** message) 
         snzu_boxSetBorder(BORDER_THICKNESS, HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, targetBorderCol));
         snzu_boxSetColor(HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, COL_BACKGROUND));
         snzu_boxSetDisplayStr(&main_font, HMM_Lerp(HMM_V4(0, 0, 0, 0), lerpT, COL_TEXT), messageCopy);
+
+        snzu_boxSetSizeFitText(30);
+        snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
+        snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
+        snzu_boxSetCornerRadius(10);
+
+        if (x) {
+            snzu_boxSelect(x);
+            snzu_boxSetSizeMarginFromParent(10);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_Y, 25);
+            snzu_boxSetSizeFromEndAx(SNZU_AX_X, 25);
+        }
     } // end not faded check
 
     *message = NULL;
