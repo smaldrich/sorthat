@@ -134,9 +134,12 @@ SNZ_SLICE(PersonPair);
 
 typedef struct Room Room;
 struct Room {
-    PersonPtrSlice people;
+    PersonPtrSlice people; // should always have ROOM_MAX_PERSON_COUNT capacity
+    HMM_Vec2 boxCenter;
     Room* next;
 };
+
+#define ROOM_MAX_PERSON_COUNT 4
 
 const char* main_loadedPath = NULL;
 PersonSlice main_people = { 0 };
@@ -197,8 +200,15 @@ void main_buildPerson(Person* p, bool draggable, HMM_Vec4 textColor, snz_Arena* 
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     if (draggable) {
-        snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
-        if (inter->dragged) {
+        if (main_draggedPerson != p) {
+            // FIXME: built in way to 'release' the mouse after capturing it in snzu
+            // FIXME: or some type of better system to mask what recieves hover events based on what is being dragged
+            snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+        } else {
+            memset(inter, 0, sizeof(*inter));
+        }
+
+        if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
             main_draggedPerson = p;
             main_draggedPersonMouseOffset = inter->dragBeginningLocal;
         }
@@ -276,8 +286,10 @@ void main_autogroup(snz_Arena* scratch) {
 
     while (true) { // FIXME: cutoff?
         Room* room = SNZ_ARENA_PUSH(&main_fileArenaA, Room);
-        SNZ_ARENA_ARR_BEGIN(&main_fileArenaA, Person*);
-        int countInRoom = 0;
+        room->people = (PersonPtrSlice){
+            .count = 0,
+            .elems = SNZ_ARENA_PUSH_ARR(&main_fileArenaA, ROOM_MAX_PERSON_COUNT, Person*),
+        };
 
         PersonPair* minBasePair = NULL;
         int minBasePairScore = 0;
@@ -293,9 +305,9 @@ void main_autogroup(snz_Arena* scratch) {
         }
 
         if (minBasePair) {
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minBasePair->a;
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minBasePair->b;
-            countInRoom += 2;
+            room->people.elems[0] = minBasePair->a;
+            room->people.elems[1] = minBasePair->a;
+            room->people.count += 2;
         } else {
             Person* found = NULL;
             for (int i = 0; i < peopleRemaining.count; i++) {
@@ -307,31 +319,25 @@ void main_autogroup(snz_Arena* scratch) {
                 break;
             }
             if (!found) {
-                SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
                 break;
             }
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = found;
-            countInRoom++;
+            room->people.elems[0] = found;
+            room->people.count++;
         }
 
         // only append the room if we know it has ppl in it
         room->next = main_firstRoom;
         main_firstRoom = room;
 
-        while (countInRoom < 4) {
+        while (room->people.count < ROOM_MAX_PERSON_COUNT) {
             SNZ_ARENA_ARR_BEGIN(scratch, Person*);
-            SNZ_ASSERT(countInRoom == main_fileArenaA.arrModeElemCount, "ew");
-            PersonPtrSlice peopleInRoom = (PersonPtrSlice){
-                .count = countInRoom,
-                .elems = (Person**)main_fileArenaA.end - countInRoom, // FIXME: some of the grossest ptr shit i've ever written, so sorry. Please fix up the arena api to let u access this safely
-            };
-            for (int i = 0; i < peopleInRoom.count; i++) {
-                Person* p = peopleInRoom.elems[i];
+            for (int i = 0; i < room->people.count; i++) {
+                Person* p = room->people.elems[i];
                 for (int j = 0; j < p->adjacents.count; j++) {
                     Person* adj = p->adjacents.elems[j];
                     if (!main_personInPersonSlice(adj, peopleRemaining)) {
                         continue;
-                    } else if (main_personInPersonSlice(adj, peopleInRoom)) {
+                    } else if (main_personInPersonSlice(adj, room->people)) {
                         continue;
                     }
                     *SNZ_ARENA_PUSH(scratch, Person*) = adj;
@@ -350,11 +356,9 @@ void main_autogroup(snz_Arena* scratch) {
             }
             SNZ_ASSERT(minAdjacent, "null adjacent how");
 
-            *SNZ_ARENA_PUSH(&main_fileArenaA, Person*) = minAdjacent;
-            countInRoom++;
+            room->people.elems[room->people.count - 1] = minAdjacent;
+            room->people.count++;
         }
-
-        room->people = SNZ_ARENA_ARR_END_NAMED(&main_fileArenaA, Person*, PersonPtrSlice);
 
         for (int i = 0; i < room->people.count; i++) {
             Person* p = room->people.elems[i];
@@ -808,6 +812,22 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                             snzu_boxNew(snz_arenaFormatStr(scratch, "%p", room));
                             SNZ_ASSERT(room->people.count > 0, "empty room??");
                             HMM_Vec4 color = room->people.elems[0]->genderColor;
+
+                            if (main_draggedPerson) {
+                                snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+                                snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+                                if (inter->hovered) {
+                                    color = HMM_Add(color, HMM_Sub(HMM_V4(1, 1, 1, 1), COL_HOVERED));
+                                    room->people.elems[room->people.count - 1] = main_draggedPerson;
+                                } else {
+                                    for (int i = 0; i < room->people.count; i++) {
+                                        if (room->people.elems[i] == main_draggedPerson) {
+                                            // room->people.elems[i] =
+                                        }
+                                    }
+                                }
+                            }
+
                             if (room->people.count <= 2) {
                                 color = COL_PANEL_ERROR;
                                 if (room->people.count == 1) {
@@ -871,12 +891,14 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
 
         for (int i = 0; i < main_people.count; i++) {
             Person* p = &main_people.elems[i];
+            if (main_draggedPerson) {
+                p->hovered = false;
+            }
             snzu_easeExp(&p->hoverAnim, p->hovered, 23);
             p->hovered = false;
         }
 
         main_messageBoxBuild(_main_messageBoxShouldBeError, _main_messageBoxShouldBeError, &_main_messageBoxMessageSignal);
-
 
         snzu_boxNew("dragDropBox");
         snzu_boxFillParent();
