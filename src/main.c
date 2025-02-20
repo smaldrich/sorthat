@@ -5,10 +5,6 @@
 #include "nfd/include/nfd.h"
 #include "stb/stb_image.h"
 
-snzu_Instance main_inst = { 0 };
-snzr_Font main_font = { 0 };
-snz_Arena main_fontArena = { 0 };
-
 SNZ_SLICE_NAMED(char, CharSlice);
 SNZ_SLICE(CharSlice);
 
@@ -142,10 +138,26 @@ struct Room {
     Room* next;
 };
 
+const char* main_loadedPath = NULL;
 PersonSlice main_people = { 0 };
 Room* main_firstRoom = NULL;
 snz_Arena main_fileArenaA = { 0 };
 snz_Arena main_fileArenaB = { 0 };
+
+snzr_Texture main_xButton = { 0 };
+
+snzu_Instance main_inst = { 0 };
+snzr_Font main_font = { 0 };
+snz_Arena main_fontArena = { 0 };
+
+const char* _main_messageBoxMessageSignal = NULL;
+bool _main_messageBoxShouldBeError = false;
+
+void main_startMessageBox(const char* msg, bool isError) {
+    SNZ_ASSERT(_main_messageBoxMessageSignal == NULL, "non-null message already this frame :(");
+    _main_messageBoxMessageSignal = msg;
+    _main_messageBoxShouldBeError = isError;
+}
 
 #define COL_BACKGROUND HMM_V4(32.0/255, 27.0/255, 27.0/255, 1.0)
 #define COL_TEXT HMM_V4(1, 1, 1, 1)
@@ -192,6 +204,7 @@ void main_clear() {
     snz_arenaClear(&main_fileArenaB);
     main_people = (PersonSlice){ 0 };
     main_firstRoom = NULL;
+    main_loadedPath = NULL;
 }
 
 // FIXME: this leaks memory, explicitly store room data in one of the file arenas so it gets cleaned up
@@ -340,7 +353,8 @@ void main_autogroup(snz_Arena* scratch) {
     }
 } // end autogroup
 
-void _main_importWithErrors(FILE* f, const char* pathForErrorMessage, snz_Arena* scratch, const char** outErrorString) {
+// return indicates success, 1 good, 0 bad
+bool _main_importWithErrors(FILE* f, const char* pathForErrorMessage, snz_Arena* scratch) {
     main_readUntil(f, '\n', scratch); // skip first line bc there are garbage bits + it's not useful
 
     SNZ_ARENA_ARR_BEGIN(&main_fileArenaB, Person);
@@ -349,9 +363,9 @@ void _main_importWithErrors(FILE* f, const char* pathForErrorMessage, snz_Arena*
         lineNum++;
         CharSliceSlice line = main_readCSVLine(f, &main_fileArenaA);
         if (line.count != 3) {
-            *outErrorString = snz_arenaFormatStr(scratch, "Can't figure out '%s'.\nInvalid formatting on line %d.", pathForErrorMessage, lineNum);
+            main_startMessageBox(snz_arenaFormatStr(scratch, "Can't figure out '%s'.\nInvalid formatting on line %d.", pathForErrorMessage, lineNum), true);
             SNZ_ARENA_ARR_END(&main_fileArenaB, Person);
-            return;
+            return false;
         }
         Person* p = SNZ_ARENA_PUSH(&main_fileArenaB, Person);
         p->fileLine = line;
@@ -361,36 +375,39 @@ void _main_importWithErrors(FILE* f, const char* pathForErrorMessage, snz_Arena*
     main_people = SNZ_ARENA_ARR_END(&main_fileArenaB, Person);
 
     if (main_people.count == 0) {
-        *outErrorString = "No people in the file.";
+        main_startMessageBox("No people in the file.", true);
+        return false;
     }
+
+    return true;
 }
 
 // out error str set when any error occurs, will be a user facing string. Str may be formatted into scratch.
-void main_import(snz_Arena* scratch, const char** outErrorStr) {
-    *outErrorStr = NULL;
-
+void main_import(snz_Arena* scratch) {
+    main_clear();
     nfdchar_t* path = NULL;
     {
         nfdresult_t result = NFD_OpenDialog(NULL, NULL, &path);
         if (result != NFD_OKAY) {
             return;
         }
-        char* newPath = snz_arenaCopyStr(scratch, path);
+        char* newPath = snz_arenaCopyStr(&main_fileArenaA, path);
         free(path);
         path = newPath;
     }
     FILE* f = fopen(path, "r");
     if (!f) {
-        *outErrorStr = snz_arenaFormatStr(scratch, "Opening file '%s' failed.", path);
+        main_startMessageBox(snz_arenaFormatStr(scratch, "Opening file '%s' failed.", path), true);
         return;
     }
-    main_clear();
-    _main_importWithErrors(f, path, scratch, outErrorStr);
+    bool importSuccess = _main_importWithErrors(f, path, scratch);
     fclose(f);
 
-    if (*outErrorStr != NULL) {
+    if (!importSuccess) {
         return;
     }
+
+    main_loadedPath = path;
 
     { // coloring by gender
         const char* genderStrs[2] = { "Male", "Female" };
@@ -503,18 +520,29 @@ void main_import(snz_Arena* scratch, const char** outErrorStr) {
     }
 
     main_autogroup(scratch);
+    main_startMessageBox(snz_arenaFormatStr(scratch, "Imported file from '%s'.", main_loadedPath), false);
 }
 
-void main_export() {
+void main_export(snz_Arena* scratch) {
+    if (!main_firstRoom) {
+        main_startMessageBox("Can't export, there aren't any rooms yet", true);
+        return;
+    }
+
     nfdchar_t* outPath = NULL;
     nfdresult_t result = NFD_SaveDialog(NULL, NULL, &outPath);
     if (result != NFD_OKAY) {
         return;
+    } else if (strcmp(outPath, main_loadedPath) == 0) {
+        main_startMessageBox("You probably shouldn't overwrite the file with your people data in it.", true);
+        free(outPath);
+        return;
     }
 
     FILE* f = fopen(outPath, "w");
-    SNZ_ASSERTF(f, "opening file '%s' failed.", outPath);
-    free(outPath);
+    if (!f) {
+        main_startMessageBox(snz_arenaFormatStr(scratch, "Opening file '%s' failed.", outPath), true);
+    }
 
     for (Room* room = main_firstRoom; room; room = room->next) {
         for (int i = 0; i < room->people.count; i++) {
@@ -523,11 +551,11 @@ void main_export() {
         }
         fprintf(f, "\n");
     }
-
     fclose(f);
-}
 
-snzr_Texture main_xButton = { 0 };
+    main_startMessageBox(snz_arenaFormatStr(scratch, "Saved rooms to '%s'.", outPath), false);
+    free(outPath);
+}
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     assert(scratch || !scratch);
@@ -637,8 +665,6 @@ void main_messageBoxBuild(bool error, bool explicitClose, const char** message) 
     *message = NULL;
 }
 
-const char* main_messageBoxMessageSignal = NULL;
-
 void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
     snzu_instanceSelect(&main_inst);
     snzu_frameStart(scratch, screenSize, dt);
@@ -658,17 +684,13 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
                     main_clear();
                 }
                 if (main_button("import")) {
-                    main_import(scratch, &main_messageBoxMessageSignal);
+                    main_import(scratch);
                 }
                 if (main_button("autogroup")) {
                     main_autogroup(scratch);
                 }
                 if (main_button("export")) {
-                    if (main_firstRoom) {
-                        main_export();
-                    } else {
-                        main_messageBoxMessageSignal = "Can't export, there aren't any rooms yet.";
-                    }
+                    main_export(scratch);
                 }
             }
             snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
@@ -829,7 +851,7 @@ void main_loop(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenS
             p->hovered = false;
         }
 
-        main_messageBoxBuild(true, true, &main_messageBoxMessageSignal);
+        main_messageBoxBuild(_main_messageBoxShouldBeError, _main_messageBoxShouldBeError, &_main_messageBoxMessageSignal);
     } // end main parent
 
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 10000);
